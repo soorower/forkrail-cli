@@ -1,0 +1,9 @@
+forkrail
+Copyright 2026 the forkrail authors
+
+Licensed under the Apache License, Version 2.0 (LICENSE). The forkrail name and logo are not
+licensed under it: a product built from forkrail needs a name and logo of its own.
+
+forkrail includes code adapted from Vercel's @vercel/routing-utils and @vercel/remix-builder
+(Apache-2.0, Vercel, Inc.), path-to-regexp (MIT, Blake Embrey) and JA4 (BSD-3-Clause, FoxIO).
+Their licences, and those of the packages forkrail is built with, are in THIRD-PARTY-NOTICES.txt.
