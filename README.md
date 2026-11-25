@@ -3,7 +3,7 @@
 Install the forkrail CLI:
 
 ```bash
-curl -fsSL https://github.com/soorower/forkrail-cli/releases/latest/download/install.sh | sh
+curl -fsSL https://forkrail.com/install | sh
 ```
 
 Then set forkrail up in your own AWS account:
