@@ -12,9 +12,11 @@ Then set forkrail up in your own AWS account:
 forkrail install
 ```
 
-You need an AWS account, a domain whose DNS is on Cloudflare (the free plan is enough), and a GitHub account. The installer asks for everything first, checks the account before it changes anything, and then sets everything up in about 25 minutes.
+On a Mac you can use the app instead, with the same installer in a window of its own: [forkrail.com/download/mac](https://forkrail.com/download/mac).
 
-Each release holds the CLI for macOS and Linux and the files `forkrail install` copies into your account, each with a `.sha256` beside it.
+You need an AWS account, a domain whose DNS is on Cloudflare (the free plan is enough), and a GitHub account. The installer asks for everything first, checks the account before it changes anything, and then sets everything up in about 15 minutes.
+
+Each release holds the CLI for macOS and Linux, the Mac app, and the files `forkrail install` copies into your account, each with a `.sha256` beside it.
 
 ## Licence
 
