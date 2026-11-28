@@ -1,0 +1,5 @@
+# Three kinds of request, for checking the tuner's model against measured load:
+# mostly waiting on I/O; CPU around a database call; a long parse at the end.
+/work/cpu:2,io:150,cpu:3
+/work/cpu:20,io:80,cpu:20
+/work/cpu:5,io:40,cpu:60

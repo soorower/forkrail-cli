@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install forkrail</title>
+<style>
+:root {
+  --bg:#f4f6f1; --panel:#ffffff; --line:#dde4d8; --line2:#edf1e9; --text:#13231b; --muted:#56685e; --faint:#8b9a91;
+  --pine:#1d4d38; --pine2:#2c6a4e; --lime:#b7f34d; --limebg:#f2fbe1; --ok:#1f8a4c; --okbg:#e7f5ec;
+  --bad:#c0392b; --badbg:#fdeceb; --warn:#946000; --warnbg:#fff5dc;
+}
+* { box-sizing:border-box; }
+html { background:var(--bg); }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.55 ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, Roboto, sans-serif; -webkit-font-smoothing:antialiased; }
+main { max-width:720px; margin:0 auto; padding:44px 16px 96px; }
+header { margin-bottom:30px; }
+.brand { display:inline-flex; align-items:center; gap:8px; font-weight:700; color:var(--pine); letter-spacing:.2px; font-size:13px; text-transform:uppercase; }
+.brand i { width:10px; height:10px; background:var(--lime); border:2px solid var(--pine); border-radius:2px; }
+h1 { font-size:30px; line-height:1.15; margin:10px 0 6px; letter-spacing:-.5px; }
+.sub { color:var(--muted); margin:0; font-size:16px; }
+a { color:var(--pine2); }
+code { font:13px ui-monospace, "SF Mono", Menlo, monospace; background:var(--line2); padding:1px 5px; border-radius:3px; }
+[hidden] { display:none !important; }
+
+ol.stages { list-style:none; margin:0; padding:0; }
+.stage { position:relative; display:grid; grid-template-columns:38px 1fr; gap:14px; padding-bottom:16px; }
+.stage:not(:last-child)::before { content:""; position:absolute; left:18px; top:40px; bottom:2px; width:2px; background:var(--line); }
+.stage.done:not(:last-child)::before { background:var(--ok); }
+.num { width:38px; height:38px; border-radius:50%; display:grid; place-items:center; font-weight:700; font-size:15px; background:var(--panel); border:2px solid var(--line); color:var(--faint); position:relative; z-index:1; transition:all .25s; }
+.stage.active .num { border-color:var(--pine); color:var(--pine); box-shadow:0 0 0 5px var(--limebg); }
+.stage.done .num { background:var(--ok); border-color:var(--ok); color:#fff; }
+.stage.fail .num { background:var(--bad); border-color:var(--bad); color:#fff; }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:15px 18px; transition:border-color .25s, box-shadow .25s; }
+.stage.todo .card { background:transparent; border-style:dashed; }
+.stage.active .card { border-color:var(--pine); box-shadow:0 6px 22px rgba(29,77,56,.08); }
+.stage.fail .card { border-color:var(--bad); }
+.head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.stage.done .head { cursor:pointer; }
+.head h2 { font-size:16px; margin:0; letter-spacing:-.1px; }
+.stage.todo .head h2 { color:var(--faint); font-weight:600; }
+.badge { font-size:12px; font-weight:650; padding:3px 9px; border-radius:999px; white-space:nowrap; }
+.badge.ok { background:var(--okbg); color:var(--ok); }
+.badge.run { background:var(--limebg); color:var(--pine); }
+.badge.bad { background:var(--badbg); color:var(--bad); }
+.badge.wait { background:var(--line2); color:var(--muted); }
+.chev { color:var(--faint); font-size:12px; margin-left:6px; }
+.summary { color:var(--muted); font-size:14px; margin-top:3px; }
+.more { margin-top:12px; font-size:14px; }
+.kv { display:grid; grid-template-columns:auto 1fr; gap:4px 14px; }
+.kv dt { color:var(--muted); } .kv dd { margin:0; }
+
+.field { margin-top:16px; }
+.field:first-child { margin-top:12px; }
+.label { display:block; font-weight:650; margin-bottom:6px; }
+.opt { color:var(--faint); font-weight:400; }
+input, select { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:5px; background:#fff; color:var(--text); font:inherit; outline:none; transition:border-color .15s, box-shadow .15s; }
+input:focus, select:focus { border-color:var(--pine2); box-shadow:0 0 0 3px var(--limebg); }
+input:disabled, select:disabled { background:var(--line2); color:var(--muted); }
+.hint { color:var(--muted); font-size:13px; margin:5px 0 0; }
+.err { color:var(--bad); font-size:13px; margin:6px 0 0; font-weight:600; }
+.seg { display:inline-grid; grid-auto-flow:column; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+.seg button { margin:0; border:0; border-radius:0; background:#fff; color:var(--muted); padding:9px 16px; font-weight:600; cursor:pointer; }
+.seg button + button { border-left:1px solid var(--line); }
+.seg button.on { background:var(--pine); color:#fff; }
+.callout { margin-top:12px; padding:12px 14px; background:var(--limebg); border:1px solid #d8eeb0; border-radius:6px; font-size:14px; }
+.callout ol { margin:8px 0 0; padding-left:20px; }
+.callout.warn { background:var(--warnbg); border-color:#f0dca8; }
+.btn { display:inline-flex; align-items:center; gap:8px; margin-top:18px; padding:11px 20px; border:0; border-radius:5px; background:var(--pine); color:#fff; font:inherit; font-weight:650; cursor:pointer; text-decoration:none; transition:background .15s, transform .1s; }
+.btn:hover { background:var(--pine2); } .btn:active { transform:translateY(1px); }
+.btn:disabled { opacity:.45; cursor:default; }
+.btn.ghost { background:#fff; color:var(--pine); border:1px solid var(--pine); margin-top:6px; padding:9px 16px; }
+.btn.ghost:hover { background:var(--limebg); }
+.btn.big { font-size:16px; padding:13px 24px; }
+.cost { margin-top:18px; padding:12px 14px; border:1px solid var(--line); border-radius:6px; font-size:14px; color:var(--muted); background:#fbfcfa; }
+.cost b { color:var(--text); }
+.steps-token { margin:8px 0 10px; padding-left:20px; font-size:14px; color:var(--muted); }
+
+ul.checks { list-style:none; margin:10px 0 0; padding:0; }
+ul.checks li { display:grid; grid-template-columns:22px 1fr; gap:8px; padding:7px 0; border-top:1px solid var(--line2); font-size:14px; }
+ul.checks li:first-child { border-top:0; }
+.mk { width:18px; height:18px; border-radius:50%; display:grid; place-items:center; font-size:11px; font-weight:700; margin-top:2px; color:#fff; }
+.mk.pass { background:var(--ok); } .mk.warn { background:var(--warn); } .mk.fail { background:var(--bad); }
+.fixline { color:var(--muted); font-size:13px; }
+
+.progress { margin-top:12px; }
+.bar { height:10px; background:var(--line2); border-radius:999px; overflow:hidden; }
+.bar > i { display:block; height:100%; width:0; background:linear-gradient(90deg, var(--pine), var(--ok) 70%, var(--lime)); border-radius:999px; transition:width .8s ease; }
+.pmeta { display:flex; justify-content:space-between; color:var(--muted); font-size:13px; margin-top:6px; font-variant-numeric:tabular-nums; }
+ul.steps { list-style:none; margin:14px 0 0; padding:0; }
+ul.steps li { display:grid; grid-template-columns:24px 1fr auto; gap:10px; align-items:start; padding:10px 10px; margin:0 -10px; border-top:1px solid var(--line2); cursor:pointer; border-radius:4px; transition:background .2s; }
+ul.steps li:first-child { border-top:0; }
+ul.steps li:hover { background:#fafbf8; }
+.dot { width:20px; height:20px; border-radius:50%; border:2px solid var(--line); display:grid; place-items:center; font-size:11px; font-weight:700; margin-top:1px; color:#fff; background:#fff; }
+ul.steps > li.done > .dot { background:var(--ok); border-color:var(--ok); }
+ul.steps > li.fail > .dot { background:var(--bad); border-color:var(--bad); }
+ul.steps > li.running { background:var(--limebg) !important; box-shadow:inset 3px 0 0 var(--lime); }
+ul.steps > li.running > .dot { border-color:#d8eeb0; border-top-color:var(--pine); animation:spin .9s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.st { font-weight:600; }
+ul.steps > li.todo > .st { color:var(--muted); font-weight:500; }
+.tm { color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; white-space:nowrap; padding-top:2px; }
+ul.steps > li.running > .tm { color:var(--pine); font-weight:650; }
+.ab { grid-column:2 / 4; color:var(--muted); font-size:13px; display:none; margin-top:-2px; }
+ul.steps > li.open > .ab, ul.steps > li.running > .ab { display:block; }
+.live { grid-column:2 / 4; font:12px/1.45 ui-monospace, "SF Mono", Menlo, monospace; color:var(--pine2); white-space:pre-wrap; word-break:break-word; }
+
+.problem { margin-top:14px; padding:14px 16px; border:1px solid #f3c4bf; background:var(--badbg); border-radius:6px; font-size:14px; }
+.problem h3 { margin:0 0 8px; font-size:15px; color:var(--bad); }
+.problem p { margin:6px 0; }
+details.said { margin-top:8px; }
+details.said summary { cursor:pointer; color:var(--muted); font-size:13px; }
+pre { white-space:pre-wrap; word-break:break-word; background:#fff; border:1px solid var(--line); padding:10px; border-radius:4px; font:12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; max-height:280px; overflow:auto; margin:8px 0 0; }
+
+.ready { text-align:left; }
+.ready h2 { font-size:22px; margin:0 0 4px; }
+details.log { margin-top:26px; color:var(--muted); font-size:13px; }
+details.log summary { cursor:pointer; }
+#notes { margin-top:8px; max-height:260px; overflow:auto; font:12px/1.6 ui-monospace, "SF Mono", Menlo, monospace; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:10px 12px; white-space:pre-wrap; }
+@media (max-width:520px) { h1 { font-size:25px; } .stage { grid-template-columns:30px 1fr; gap:10px; } .num { width:30px; height:30px; font-size:13px; } .stage:not(:last-child)::before { left:14px; top:32px; } .card { padding:13px 14px; } }
+</style></head>
+<body><main>
+<header>
+  <div class="brand"><i></i>forkrail</div>
+  <h1>Install forkrail</h1>
+  <p class="sub">Your own app hosting, set up in one go. Answer a few questions, click once on GitHub, then watch it build.</p>
+</header>
+
+<ol class="stages">
+  <li class="stage active" id="s1"><div class="num">1</div><div class="card">
+    <div class="head"><h2>AWS account</h2><span class="badge run" data-badge>Connecting…</span></div>
+    <div class="summary" data-summary>Looking for your AWS sign-in on this computer.</div>
+    <div class="more" data-more hidden></div>
+    <div data-body></div>
+  </div></li>
+
+  <li class="stage todo" id="s2"><div class="num">2</div><div class="card">
+    <div class="head"><h2>Your details</h2><span class="badge wait" data-badge>Next</span></div>
+    <div class="summary" data-summary>Your domain, where it runs, and the Cloudflare token.</div>
+    <div class="more" data-more hidden></div>
+    <div data-body>
+      <form id="form" hidden autocomplete="off" onsubmit="return false">
+        <div class="field">
+          <span class="label">Where is your domain's DNS?</span>
+          <div class="seg" role="radiogroup">
+            <button type="button" data-dns="cloudflare" class="on" role="radio" aria-checked="true">Cloudflare</button>
+            <button type="button" data-dns="other" role="radio" aria-checked="false">Somewhere else</button>
+          </div>
+          <div class="callout warn" id="movebox" hidden>
+            forkrail sets up your apps' addresses and HTTPS certificates by itself through Cloudflare's DNS, which is free. Your domain stays with the company you bought it from; only its DNS moves:
+            <ol>
+              <li><a target="_blank" rel="noopener" href="https://dash.cloudflare.com/?to=/:account/add-site">Add your domain to Cloudflare</a> (free plan).</li>
+              <li>Where you bought the domain (GoDaddy, Namecheap, Route 53, …), replace its nameservers with the two Cloudflare shows you.</li>
+              <li>When Cloudflare says the domain is active (usually within an hour), pick Cloudflare here.</li>
+            </ol>
+          </div>
+        </div>
+        <div id="cfbox">
+          <div class="field">
+            <label class="label" for="domain">Domain for your apps</label>
+            <input id="domain" placeholder="example.com" spellcheck="false" autocapitalize="off">
+            <p class="hint" id="domainhint">Your apps get <b>name.example.com</b>, and your dashboard <b>dashboard.example.com</b>.</p>
+            <p class="err" id="domainerr" hidden></p>
+          </div>
+          <div class="field">
+            <label class="label" for="region">Region</label>
+            <select id="region"></select>
+            <p class="hint">Where your apps run. Pick the one closest to your visitors.</p>
+            <p class="hint" id="fixedhint" hidden>forkrail is installed here already, so its domain and region stay as they are.</p>
+          </div>
+          <div class="field" id="tokenbox">
+            <span class="label">Cloudflare API token <span class="opt" id="tokenopt" hidden>(optional)</span></span>
+            <a class="btn ghost" id="tokenlink" target="_blank" rel="noopener">Create the token on Cloudflare ↗</a>
+            <ol class="steps-token">
+              <li>Everything is filled in: click <b>Continue to summary</b>, then <b>Create Token</b>.</li>
+              <li>Copy the token, and paste it here.</li>
+            </ol>
+            <input id="token" type="password" placeholder="Paste the token here">
+            <p class="hint" id="tokensaved" hidden>The token from the earlier run is saved. Paste a new one only to replace it.</p>
+            <p class="hint">To keep it to this one domain, pick the domain under <b>Zone Resources</b> before you continue.</p>
+          </div>
+          <div class="field">
+            <label class="label" for="email">Email for alerts <span class="opt">(optional)</span></label>
+            <input id="email" type="email" placeholder="you@example.com" autocomplete="email">
+            <p class="hint">For spending and certificate alerts. AWS sends one email to confirm it. Without one, the spending limit still stops your apps at the limit, but no one is told.</p>
+          </div>
+          <div class="callout warn" id="overbox" hidden></div>
+          <div class="cost" id="cost"></div>
+          <button class="btn big" id="go" type="button">Check and install</button>
+          <p class="err" id="goerr" hidden></p>
+        </div>
+      </form>
+    </div>
+  </div></li>
+
+  <li class="stage todo" id="s3"><div class="num">3</div><div class="card">
+    <div class="head"><h2>Checks</h2><span class="badge wait" data-badge>Next</span></div>
+    <div class="summary" data-summary>Makes sure your account and domain are ready. Nothing changes until these pass.</div>
+    <div class="more" data-more hidden></div>
+    <div data-body></div>
+  </div></li>
+
+  <li class="stage todo" id="s4"><div class="num">4</div><div class="card">
+    <div class="head"><h2>GitHub sign-in</h2><span class="badge wait" data-badge>Next</span></div>
+    <div class="summary" data-summary>One click on GitHub, so you can sign in to your dashboard.</div>
+    <div class="more" data-more hidden></div>
+    <div data-body></div>
+  </div></li>
+
+  <li class="stage todo" id="s5"><div class="num">5</div><div class="card">
+    <div class="head"><h2>Setting up</h2><span class="badge wait" data-badge>Next</span></div>
+    <div class="summary" data-summary>Everything runs on its own from here, usually 25 to 40 minutes.</div>
+    <div class="more" data-more hidden></div>
+    <div data-body></div>
+  </div></li>
+
+  <li class="stage todo" id="s6"><div class="num">6</div><div class="card">
+    <div class="head"><h2>Ready</h2><span class="badge wait" data-badge>Soon</span></div>
+    <div class="summary" data-summary>Your dashboard, at your own domain.</div>
+    <div data-body></div>
+  </div></li>
+</ol>
+
+<details class="log" id="log" hidden><summary>Technical details</summary><div id="notes"></div></details>
+</main>
+<script>
+const key = new URLSearchParams(location.search).get('k');
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const S = { account: null, asked: false, answered: false, fixed: false, details: null, checks: [], open: null, github: null, plan: [], status: {}, live: {}, current: null, installed: null, problem: null, stopped: false, signin: false, githubClicked: false };
+const expanded = {};
+let seen = 0, polling = true, questions = null, dns = 'cloudflare';
+// In the Mac app's window there's no terminal: carrying on is opening the app again.
+let inWindow = false;
+const again = () => inWindow ? 'open Forkrail again' : 'run <code>forkrail install</code> again';
+// "Run the installer again" and "run `forkrail install` again", as the window says them.
+const inApp = (t) => inWindow ? t.replace(/\b([Rr])un (`forkrail install`|the installer) again/g, (_, r) => (r === 'R' ? 'O' : 'o') + 'pen Forkrail again') : t;
+const fixText = (t) => esc(inApp(t));
+
+async function poll() {
+  if (!polling) return;
+  try {
+    const r = await fetch('/state', { headers: { 'x-forkrail-key': key } });
+    if (r.ok) render(await r.json());
+  } catch (e) {
+    S.stopped = true; polling = false; draw();
+    return;
+  }
+  setTimeout(poll, 1000);
+}
+
+function render(s) {
+  if (s.window) inWindow = true;
+  if (s.asking && s.questions && !S.asked) ask(s.questions);
+  if (s.questions) questions = questions || s.questions;
+  if (s.answered && !S.details) {
+    const r = (s.questions && s.questions.regions || []).find((r) => r.code === s.answered.region);
+    S.details = { domain: s.answered.domain, email: s.answered.email, regionName: r ? r.name : s.answered.region };
+    S.answered = true;
+  }
+  for (const e of s.events.slice(seen)) apply(e);
+  seen = s.events.length;
+  if (s.done) { polling = false; S.ended = true; }
+  draw();
+}
+
+function ask(q) {
+  S.asked = true; questions = q; S.fixed = q.fixed;
+  $('form').hidden = false;
+  const sel = $('region');
+  sel.innerHTML = q.regions.map((r) => '<option value="' + esc(r.code) + '">' + esc(r.name) + ' · ' + esc(r.code) + '</option>').join('');
+  if (!q.regions.some((r) => r.code === q.region)) sel.insertAdjacentHTML('afterbegin', '<option value="' + esc(q.region) + '">' + esc(q.region) + '</option>');
+  sel.value = q.region;
+  $('domain').value = q.domain; $('email').value = q.email;
+  $('domain').disabled = sel.disabled = q.fixed;
+  $('fixedhint').hidden = !q.fixed;
+  $('tokenbox').hidden = !q.token && !q.token_saved;
+  $('tokenopt').hidden = $('tokensaved').hidden = q.token || !q.token_saved;
+  $('tokenlink').href = q.token_page;
+  $('cost').innerHTML = 'forkrail runs two small servers in your account: <b>' + esc(q.price) + '</b> (24 hours) on your AWS bill, plus what your apps use. Nothing is changed until the checks pass.';
+  domainHint();
+  overHint();
+}
+
+// A started install takes a new domain or region only by starting over.
+function startsOver() {
+  if (!questions || !questions.started || questions.fixed) return false;
+  const domain = cleanDomain($('domain').value);
+  return $('region').value !== questions.region || (questions.domain !== '' && domain !== questions.domain);
+}
+function overHint() {
+  const over = startsOver();
+  $('overbox').hidden = !over;
+  if (over) {
+    const r = questions.regions.find((r) => r.code === questions.region);
+    $('overbox').innerHTML = '<b>This starts the install over.</b> forkrail first removes what the earlier run made' +
+      (questions.domain ? ' for <b>' + esc(questions.domain) + '</b>' : '') + ' in <b>' + esc(r ? r.name : questions.region) + '</b>, then installs again with these answers. It adds a few minutes.';
+  }
+  if (!$('go').disabled) $('go').textContent = over ? 'Start over and install' : 'Check and install';
+}
+
+function apply(e) {
+  if (e.kind === 'note') {
+    $('log').hidden = false;
+    const text = inApp(e.text.trim());
+    $('notes').insertAdjacentText('beforeend', text + '\n');
+    $('notes').scrollTop = 1e9;
+    // A step's own line goes with it; steps run side by side.
+    const id = e.step || S.current;
+    if (id) S.live[id] = text;
+  } else if (e.kind === 'account') {
+    S.account = e;
+  } else if (e.kind === 'check') {
+    S.checks.push(e);
+  } else if (e.kind === 'open') {
+    S.open = e;
+  } else if (e.kind === 'github') {
+    S.github = e; S.open = null;
+  } else if (e.kind === 'plan') {
+    S.plan = e.steps; S.open = null; S.planAt = e.at;
+  } else if (e.kind === 'started') {
+    S.status[e.id] = { s: 'running', at: e.at }; S.current = e.id;
+  } else if (e.kind === 'finished') {
+    S.status[e.id] = { s: 'done', secs: e.secs, skipped: e.skipped };
+    // Steps run side by side: the live line follows one still running.
+    if (S.current === e.id) S.current = Object.keys(S.status).find((id) => S.status[id].s === 'running') || null;
+    if (e.id === 'github') S.open = null;
+  } else if (e.kind === 'failed') {
+    S.problem = e;
+    const step = S.plan.find((p) => p.title === e.step);
+    const id = step && S.status[step.id] && S.status[step.id].s === 'running' ? step.id : S.current;
+    if (id) S.status[id] = { s: 'fail' };
+  } else if (e.kind === 'installed') {
+    S.installed = e; S.doneAt = e.at;
+  }
+}
+
+function setStage(id, state, badge, badgeKind, summary) {
+  const li = $(id);
+  li.className = 'stage ' + state;
+  const num = li.querySelector('.num');
+  num.dataset.n = num.dataset.n || num.textContent;
+  num.textContent = state === 'done' ? '✓' : state === 'fail' ? '!' : num.dataset.n;
+  const b = li.querySelector('[data-badge]');
+  b.className = 'badge ' + badgeKind; b.textContent = badge;
+  if (summary !== undefined) li.querySelector('[data-summary]').innerHTML = summary;
+}
+// A finished stage with details opens on a click: its arrow says so.
+function chevrons() {
+  for (const li of document.querySelectorAll('.stage')) {
+    const more = li.querySelector('[data-more]'), h = li.querySelector('h2');
+    const has = li.classList.contains('done') && more && more.innerHTML.trim() !== '';
+    if (more) more.hidden = !(has && expanded[li.id]);
+    let chev = h.querySelector('.chev');
+    if (has && !chev) { h.insertAdjacentHTML('beforeend', '<span class="chev"></span>'); chev = h.querySelector('.chev'); }
+    if (!has && chev) chev.remove();
+    if (has) chev.textContent = expanded[li.id] ? '▲' : '▼';
+  }
+}
+const body = (id) => $(id).querySelector('[data-body]');
+const more = (id) => $(id).querySelector('[data-more]');
+
+function mins(secs) {
+  secs = Math.max(0, Math.round(secs));
+  if (secs < 60) return secs + ' s';
+  const m = Math.floor(secs / 60), s = secs % 60;
+  return m + ':' + String(s).padStart(2, '0');
+}
+function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+function aboutMin(secs) { return secs < 90 ? 'under 2 minutes' : 'about ' + Math.round(secs / 60) + ' minutes'; }
+
+function problemHtml(p) {
+  return '<div class="problem"><h3>' + esc(p.step) + ' stopped while ' + esc(p.action) + '.</h3>' +
+    '<p><b>What happened:</b> ' + esc(p.cause) + '</p><p><b>What to do:</b> ' + fixText(p.fix) + '</p>' +
+    (p.link ? '<p><a target="_blank" rel="noopener" href="' + esc(p.link) + '">Open the page that fixes it ↗</a></p>' : '') +
+    '<details class="said"><summary>AWS\'s own message</summary><pre>' + esc(p.said) + '</pre></details>' +
+    '<p class="hint">Then ' + again() + '. It carries on from here; nothing done so far is lost.</p></div>';
+}
+
+function openHtml(o) {
+  return '<div class="callout"><div>' + esc(o.why) + '</div>' +
+    (/^https?:\/\//.test(o.url) ? '<a class="btn ghost" target="_blank" rel="noopener" href="' + esc(o.url) + '">Open it ↗</a>' : '') + '</div>';
+}
+
+// GitHub opens only when the person clicks for it, as AWS's sign-in does. GitHub may ask them to
+// confirm it's them first, and then shows an empty form: the app's details don't survive that, so
+// a second click opens it filled in again.
+function githubHtml(o) {
+  return '<div class="callout"><div>' + esc(o.why) + '</div>' +
+    '<a class="btn" data-github target="_blank" rel="noopener" href="' + esc(o.url) + '">' + (S.githubClicked ? 'Open GitHub again ↗' : 'Create the GitHub App ↗') + '</a>' +
+    (S.githubClicked ? '<p class="hint">Click <b>Create GitHub App</b> on GitHub, and this ' + (inWindow ? 'window' : 'page') + ' moves on by itself. ' +
+      'If GitHub asked you to confirm it\'s you and then showed an empty form, click the button above again: GitHub opens with forkrail\'s app filled in.</p>' : '') + '</div>';
+}
+
+// AWS's sign-in opens only when the person clicks for it.
+function signinHtml(o) {
+  return '<div class="callout"><div>' + esc(o.why) + '</div>' +
+    '<a class="btn" data-signin target="_blank" rel="noopener" href="' + esc(o.url) + '">' + (S.signin ? 'Open the sign-in again ↗' : 'Sign in to AWS ↗') + '</a>' +
+    (S.signin ? '<p class="hint">AWS\'s sign-in page is open in your browser. Finish there, and this ' + (inWindow ? 'window' : 'page') + ' carries on by itself.</p>' : '') + '</div>';
+}
+
+function draw() {
+  const planned = S.plan.length > 0;
+  // 1. AWS account
+  if (S.account) {
+    setStage('s1', 'done', 'Connected', 'ok', 'Account ' + esc(S.account.account.replace(/(\d{4})(\d{4})(\d{4})/, '$1 $2 $3')) + ', ready to use.');
+    more('s1').innerHTML = '<dl class="kv"><dt>Account ID</dt><dd>' + esc(S.account.account) + '</dd><dt>Signed in as</dt><dd>' + esc(S.account.who) + '</dd></dl>';
+    body('s1').innerHTML = '';
+  } else if (S.problem && !S.account) {
+    setStage('s1', 'fail', 'Not signed in', 'bad', 'forkrail couldn\'t sign in to AWS.');
+    body('s1').innerHTML = problemHtml(S.problem);
+  } else {
+    setStage('s1', 'active', S.open ? (S.signin ? 'Waiting for AWS' : 'Sign in') : 'Connecting…', 'run', S.open ? 'Sign in to the AWS account forkrail goes in.' : 'Looking for your AWS sign-in on this computer.');
+    body('s1').innerHTML = S.open ? signinHtml(S.open) : '';
+  }
+  // 2. Your details
+  if (S.answered || (S.account && (S.checks.length || planned))) {
+    const d = S.details;
+    setStage('s2', 'done', 'Saved', 'ok', d ? esc(d.domain) + ' · ' + esc(d.regionName) + (d.email ? ' · alerts to ' + esc(d.email) : '') : 'Saved.');
+    $('form').hidden = true;
+  } else if (S.asked) {
+    setStage('s2', 'active', 'Your turn', 'run', 'A few answers, and forkrail does the rest.');
+  } else {
+    setStage('s2', 'todo', 'Next', 'wait');
+  }
+  // 3. Checks
+  const failedChecks = S.checks.filter((c) => c.verdict === 'fail');
+  const checksDone = planned || S.github || (S.open && S.account && S.checks.length) || failedChecks.length > 0 || (S.ended && S.checks.length);
+  const list = '<ul class="checks">' + S.checks.map((c) => {
+    const mark = { pass: '✓', warn: '!', fail: '✕' }[c.verdict];
+    return '<li><span class="mk ' + c.verdict + '">' + mark + '</span><div><b>' + esc(c.name) + '</b>: ' + esc(c.detail) +
+      (c.verdict !== 'pass' && c.fix ? '<div class="fixline">' + fixText(c.fix) + '</div>' : '') +
+      (c.verdict !== 'pass' && c.link ? '<div class="fixline"><a target="_blank" rel="noopener" href="' + esc(c.link) + '">Open the page for it ↗</a></div>' : '') + '</div></li>';
+  }).join('') + '</ul>';
+  if (failedChecks.length) {
+    setStage('s3', 'fail', failedChecks.length + ' to fix', 'bad', 'Nothing was changed. Fix what\'s marked, then ' + again() + '.');
+    body('s3').innerHTML = list; more('s3').innerHTML = '';
+  } else if (checksDone && S.checks.length) {
+    setStage('s3', 'done', 'All good', 'ok', S.checks.length + ' checks passed.');
+    more('s3').innerHTML = list; body('s3').innerHTML = '';
+  } else if (S.answered || S.checks.length) {
+    setStage('s3', 'active', 'Checking…', 'run', 'Making sure your account and domain are ready.');
+    body('s3').innerHTML = list;
+  } else {
+    setStage('s3', 'todo', 'Next', 'wait');
+  }
+  // 4. GitHub
+  if (S.github) {
+    setStage('s4', 'done', 'Ready', 'ok', 'GitHub App <b>' + esc(S.github.name) + '</b> is made.');
+    more('s4').innerHTML = '<a target="_blank" rel="noopener" href="' + esc(S.github.url) + '">See it on GitHub ↗</a>';
+    body('s4').innerHTML = '';
+  } else if (S.open && S.account && !planned && checksDone) {
+    setStage('s4', 'active', S.githubClicked ? 'Waiting for GitHub' : 'Your turn', 'run', 'The last thing you do. Everything after it runs on its own.');
+    body('s4').innerHTML = githubHtml(S.open);
+  } else if (planned) {
+    setStage('s4', 'todo', 'At the end', 'wait', 'You\'ll click <b>Create GitHub App</b> at the last step.');
+    body('s4').innerHTML = '';
+  } else {
+    setStage('s4', 'todo', 'Next', 'wait');
+  }
+  // 5. Setting up
+  if (planned) drawSetup(); else setStage('s5', 'todo', 'Next', 'wait');
+  // 6. Ready
+  if (S.installed) {
+    setStage('s6', 'done', 'Done', 'ok', '');
+    body('s6').innerHTML = '<div class="ready"><h2>forkrail is ready.</h2><p class="summary">Open your dashboard and sign in with GitHub. You\'re its owner.</p>' +
+      '<a class="btn big" target="_blank" rel="noopener" href="' + esc(S.installed.dashboard) + '">Open your dashboard ↗</a>' +
+      '<p class="hint">' + esc(S.installed.dashboard) + '</p></div>';
+  }
+  chevrons();
+  if (S.stopped && !S.installed && !S.problem && !failedChecks.length) {
+    const active = document.querySelector('.stage.active');
+    if (active) active.querySelector('[data-summary]').innerHTML = (inWindow ? 'The installer stopped. Open Forkrail again to carry on.' : 'The installer stopped. Its last words are in your terminal; run <code>forkrail install</code> again to carry on.');
+  }
+}
+
+function drawSetup() {
+  const domain = (S.details && S.details.domain) || (questions && questions.domain) || 'your domain';
+  const now = Date.now();
+  // Steps run side by side, each once what it needs is done: what's left is the longest chain of
+  // steps still to finish.
+  const ends = {};
+  const end = (p) => {
+    if (p.id in ends) return ends[p.id];
+    ends[p.id] = 0;
+    const st = S.status[p.id];
+    const own = st && st.s === 'done' ? 0 : st && st.s === 'running' ? Math.max(p.est * 0.05, p.est - (now - st.at) / 1000) : p.est;
+    const after = Math.max(0, ...(p.needs || []).map((n) => S.plan.find((q) => q.id === n)).filter(Boolean).map(end));
+    return (ends[p.id] = after + own);
+  };
+  const remaining = Math.max(0, ...S.plan.map(end));
+  const spent = S.planAt ? Math.max(0, (now - S.planAt) / 1000) : 0;
+  const pct = S.installed ? 100 : Math.max(2, Math.min(98, Math.round(spent / (spent + remaining || 1) * 100)));
+  const left = Math.max(60, remaining);
+  const failed = S.problem && S.plan.length;
+  const count = S.plan.filter((p) => S.status[p.id] && S.status[p.id].s === 'done').length;
+  if (S.installed) {
+    setStage('s5', 'done', 'Done', 'ok', 'All ' + S.plan.length + ' steps finished' + (S.planAt ? ' in ' + plural(Math.max(1, Math.round((S.doneAt - S.planAt) / 60000)), 'minute') : '') + '.');
+  } else if (failed) {
+    setStage('s5', 'fail', 'Stopped', 'bad', count + ' of ' + S.plan.length + ' steps done. One needs a fix.');
+  } else {
+    setStage('s5', 'active', count + ' of ' + S.plan.length, 'run', 'Everything runs on its own from here. You can leave this ' + (inWindow ? 'window' : 'tab') + ' open and come back.');
+  }
+  const steps = S.plan.map((p) => {
+    const st = S.status[p.id] || { s: 'todo' };
+    let tm = '';
+    if (st.s === 'done') tm = st.skipped ? 'done before' : mins(st.secs);
+    else if (st.s === 'running') tm = mins((now - st.at) / 1000) + ' · usually ' + aboutMin(p.est).replace('about ', '~');
+    const open = expanded['step-' + p.id] ? ' open' : '';
+    const live = st.s === 'running' && S.live[p.id] ? '<div class="live">' + esc(S.live[p.id]) + '</div>' : '';
+    const mark = st.s === 'done' ? '✓' : st.s === 'fail' ? '✕' : '';
+    // The list is drawn again every second: the spinner picks up where the last one was.
+    const spin = st.s === 'running' ? ' style="animation-delay:-' + (Date.now() % 900) + 'ms"' : '';
+    return '<li class="' + st.s + open + '" data-step="' + esc(p.id) + '"><span class="dot"' + spin + '>' + mark + '</span><span class="st">' + esc(p.title) + '</span><span class="tm">' + esc(tm) + '</span>' +
+      '<div class="ab">' + esc(p.about.replace('<your domain>', domain)) + '</div>' + live + '</li>';
+  }).join('');
+  const callout = S.open && S.plan.length ? openHtml(S.open) : '';
+  body('s5').innerHTML = '<div class="progress"><div class="bar"><i style="width:' + pct + '%"></i></div><div class="pmeta"><span>' + pct + '%</span><span>' +
+    (S.installed ? 'Finished' : failed ? 'Stopped' : 'About ' + Math.ceil(left / 60) + ' min left') + '</span></div></div>' + callout +
+    '<ul class="steps">' + steps + '</ul>' + (failed ? problemHtml(S.problem) : '');
+}
+
+document.addEventListener('click', (ev) => {
+  // After the link has opened its tab.
+  if (ev.target.closest('[data-signin]')) { S.signin = true; setTimeout(draw, 300); return; }
+  if (ev.target.closest('[data-github]')) { S.githubClicked = true; setTimeout(draw, 300); return; }
+  const step = ev.target.closest('ul.steps li');
+  if (step) { const k = 'step-' + step.dataset.step; expanded[k] = !expanded[k]; draw(); return; }
+  const head = ev.target.closest('.stage.done .head');
+  if (head) { const id = head.closest('.stage').id; expanded[id] = !expanded[id]; draw(); return; }
+  const seg = ev.target.closest('[data-dns]');
+  if (seg) {
+    dns = seg.dataset.dns;
+    document.querySelectorAll('[data-dns]').forEach((b) => { b.classList.toggle('on', b === seg); b.setAttribute('aria-checked', b === seg ? 'true' : 'false'); });
+    $('movebox').hidden = dns === 'cloudflare';
+    $('cfbox').hidden = dns !== 'cloudflare';
+  }
+});
+
+const DOMAIN = /^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+function cleanDomain(v) { return v.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/\.$/, ''); }
+function domainHint() {
+  const d = cleanDomain($('domain').value) || 'example.com';
+  $('domainhint').innerHTML = 'Your apps get <b>name.' + esc(d) + '</b>, and your dashboard <b>dashboard.' + esc(d) + '</b>.';
+}
+$('domain').addEventListener('input', () => { domainHint(); overHint(); $('domainerr').hidden = true; });
+$('region').addEventListener('change', overHint);
+
+$('go').addEventListener('click', async () => {
+  const domain = cleanDomain($('domain').value);
+  $('domain').value = domain;
+  const err = (id, text) => { $(id).textContent = text; $(id).hidden = false; };
+  $('domainerr').hidden = true; $('goerr').hidden = true;
+  if (!S.fixed && !DOMAIN.test(domain)) { err('domainerr', 'Give a domain like example.com, without https:// or a path.'); $('domain').focus(); return; }
+  const token = $('token').value.trim();
+  if (questions.token && !token) { err('goerr', 'Paste the Cloudflare token first. The button above makes one.'); $('token').focus(); return; }
+  if (token && token.length < 20) { err('goerr', 'That doesn\'t look like a Cloudflare token. Copy the whole token from Cloudflare.'); $('token').focus(); return; }
+  const answers = { domain, region: $('region').value, email: $('email').value.trim(), token, start_over: startsOver() };
+  $('go').disabled = true; $('go').textContent = 'Checking…';
+  try {
+    const r = await fetch('/answers', { method: 'POST', headers: { 'x-forkrail-key': key, 'content-type': 'application/json' }, body: JSON.stringify(answers) });
+    if (r.ok) {
+      $('token').value = '';
+      const sel = $('region');
+      S.details = { domain, email: answers.email, regionName: sel.options[sel.selectedIndex].text.split(' · ')[0] };
+      S.answered = true; draw();
+    } else {
+      err('goerr', await r.text());
+      $('go').disabled = false; overHint();
+    }
+  } catch (e) {
+    err('goerr', inWindow ? 'The installer stopped. Open Forkrail again.' : 'The installer stopped. Run forkrail install again.');
+  }
+});
+
+setInterval(() => { if (S.current && !S.problem) draw(); }, 1000);
+poll();
+</script></body></html>

@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# The install's cost allocation tag, active in Billing: every forkrail resource carries
+# project=forkrail, and with the tag key active AWS's bill tells the install's costs apart from
+# anything else in the account. The guard's daily bill check (crates/guard) and the backstop
+# (spend-backstop.yaml) read the bill by it.
+#
+# CloudFormation has no resource for a cost allocation tag's status, so a one-off function sets it
+# when the stack is created or updated (AWS's own pattern). Deleting the stack leaves the tag
+# active: deactivating it would blind both. Activation itself is free; the function runs once per
+# stack change. A tag key shows up in Billing up to a day after a resource first carries it, and
+# takes up to a day more to apply; costs are tagged from then on.
+#
+#   deploy/aws/stack.sh apply cost-tags
+#
+# Needs the account's billing (a standalone or management account; a member of an AWS
+# Organization can't, and its management account activates it instead).
+Description: forkrail's cost allocation tag (project), activated in Billing so the install's own costs can be read from AWS's bill.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  TagKeys:
+    Type: CommaDelimitedList
+    Default: project
+    Description: The tag keys to activate as cost allocation tags.
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/forkrail-cost-tags
+      RetentionInDays: 30
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: forkrail-cost-tags
+      Description: Activates forkrail's cost allocation tag in Billing, once per stack change.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: cost-tags
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Neither can be limited to a resource.
+              - Effect: Allow
+                Action:
+                  - ce:UpdateCostAllocationTagsStatus
+                  - ce:ListCostAllocationTags
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub ${LogGroup.Arn}:*
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: forkrail-cost-tags
+      Description: Activates forkrail's cost allocation tag (deploy/install/cost-tags.yaml); runs only when the stack changes.
+      Runtime: python3.13
+      Architectures: [arm64]
+      Handler: index.handler
+      MemorySize: 128
+      Timeout: 60
+      Role: !GetAtt Role.Arn
+      LoggingConfig:
+        LogGroup: !Ref LogGroup
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+
+          def handler(event, context):
+              keys = [k for k in event["ResourceProperties"].get("TagKeys", []) if k]
+              try:
+                  if event["RequestType"] in ("Create", "Update") and keys:
+                      ce = boto3.client("ce", region_name="us-east-1")
+                      out = ce.update_cost_allocation_tags_status(
+                          CostAllocationTagsStatus=[{"TagKey": k, "Status": "Active"} for k in keys]
+                      )
+                      if out.get("Errors"):
+                          reason = "; ".join(f'{e.get("TagKey")}: {e.get("Code")} {e.get("Message")}' for e in out["Errors"])
+                          cfnresponse.send(event, context, cfnresponse.FAILED, {}, "forkrail-cost-tags", reason=reason[:900])
+                          return
+                      tags = ce.list_cost_allocation_tags(TagKeys=keys).get("CostAllocationTags", [])
+                      print({t["TagKey"]: t["Status"] for t in tags})
+                  # Deleting leaves the tags active: the bill checks need them.
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {"TagKeys": ",".join(keys)}, "forkrail-cost-tags")
+              except Exception as e:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {}, "forkrail-cost-tags", reason=str(e)[:900])
+
+  Activate:
+    Type: Custom::CostAllocationTags
+    Properties:
+      ServiceToken: !GetAtt Function.Arn
+      TagKeys: !Ref TagKeys
+
+Outputs:
+  TagKeys:
+    Value: !GetAtt Activate.TagKeys

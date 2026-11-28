@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# One of forkrail's two machines, as `forkrail install` makes them (crates/cli/src/install): the
+# router (stack forkrail-install-router, a t4g.small) and the analytics box
+# (forkrail-install-analytics, a t4g.medium), each Amazon Linux 2023 on arm64 with its Elastic IP
+# from forkrail-install-network. Nothing runs on it at launch: the installer sets it up through SSM
+# Run Command (deploy/install/box/), so every step's output comes back to the person installing.
+#
+# The image is passed in once, when the stack is made, and kept after: a newer image would replace
+# the machine, and the analytics box keeps its data on its disk.
+Description: A forkrail machine (router or analytics box) and its Elastic IP.
+
+Parameters:
+  Name:
+    Type: String
+    AllowedValues: [forkrail-router, forkrail-analytics]
+    Description: The machine's name, its role's and instance profile's too.
+  InstanceType:
+    Type: String
+    Default: t4g.small
+  DiskGb:
+    Type: Number
+    Default: 20
+    MinValue: 8
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Description: Amazon Linux 2023, arm64 (SSM /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64).
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  AllocationId:
+    Type: String
+    Description: The Elastic IP's allocation (forkrail-install-network).
+
+Resources:
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Ref Name
+      LaunchTemplateData:
+        # IMDSv2 only.
+        MetadataOptions:
+          HttpTokens: required
+          HttpEndpoint: enabled
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: !Ref DiskGb
+              VolumeType: gp3
+              DeleteOnTermination: true
+              Encrypted: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - { Key: Name, Value: !Ref Name }
+              - { Key: project, Value: forkrail }
+          - ResourceType: volume
+            Tags:
+              - { Key: Name, Value: !Ref Name }
+              - { Key: project, Value: forkrail }
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref SecurityGroupId]
+      IamInstanceProfile: !Ref Name
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+
+  AddressAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !Ref AllocationId
+      InstanceId: !Ref Instance
+
+Outputs:
+  InstanceId:
+    Value: !Ref Instance
+  PrivateIp:
+    Value: !GetAtt Instance.PrivateIp
+  Zone:
+    Value: !GetAtt Instance.AvailabilityZone

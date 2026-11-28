@@ -1,0 +1,21 @@
+[package]
+name = "forkrail-runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bytes = "1.12.1"
+forkrail-common = { version = "0.1.0", path = "../common", features = ["envfile"] }
+http-body-util = { version = "0.1.5", features = ["channel"] }
+hyper = { version = "1.12.0", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1.21", features = ["client-legacy", "http1", "tokio"] }
+lambda_runtime = "1.5.0"
+libc = "0.2.191"
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "logging"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "time", "io-util", "sync", "process"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }

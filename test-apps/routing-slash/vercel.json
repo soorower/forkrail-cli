@@ -1,0 +1,6 @@
+{
+  "trailingSlash": true,
+  "redirects": [{ "source": "/old/:p", "destination": "/new/:p", "permanent": false }],
+  "rewrites": [{ "source": "/r/:p", "destination": "/about.html" }],
+  "headers": [{ "source": "/(.*)", "headers": [{ "key": "x-all", "value": "1" }] }]
+}

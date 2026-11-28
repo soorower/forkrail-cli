@@ -1,0 +1,113 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# The image optimizer, forkrail-image: Image Optimization's resizer (deploy/image/index.mjs). The
+# routers answer `/_vercel/image` themselves, from optimized images kept once for the whole install
+# under images/ in the home bucket (Vercel's shared cache), and invoke this only on a miss
+# (crates/router/src/images.rs). One stack per region a router runs in, each beside that region's
+# bucket, where it reads its sources. Apply it with the zip deploy/aws/image.sh built and uploaded to
+# each region's bucket:
+#
+#   deploy/aws/image.sh release
+#
+# Who can call it: only the routers' role, by the resource policy below, and the account's
+# administrators through IAM. Its role reads deployments' files (static/*) in its own region's
+# bucket and writes optimized images (images/*) in the home bucket, nothing else: not even
+# CloudWatch Logs (errors go back to the router, which logs them).
+# It fetches images elsewhere over the internet behind its own address guard; it has no VPC.
+#
+# Cost: nothing while idle. Each miss is one invocation (arm64 at 2 GB: $0.0000266667 a second, about
+# 0.1 to 0.3 s for WebP, 0.5 to 0.8 s for AVIF, plus $0.0000002 a request) and one S3 PUT
+# ($0.000005); the router's reads of what's kept are S3 GETs ($0.0000004). Outside the home region
+# both cross regions: the write, and a router's read on a memory miss, $0.02/GB each.
+Description: forkrail's image optimizer, which the routers invoke for Image Optimization misses.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  CodeKey:
+    Type: String
+    AllowedPattern: "image/forkrail-image-[0-9a-f]{16}\\.zip"
+    Description: The function's zip in this region's bucket, as deploy/aws/image.sh uploaded it.
+  Bucket:
+    Type: String
+    AllowedPattern: "forkrail-artifacts-[0-9]{12}(-[a-z0-9-]+)?"
+    Description: This region's bucket (forkrail-artifacts-<account> in the home region, -<region> elsewhere), where it reads sources.
+  StoreBucket:
+    Type: String
+    AllowedPattern: "forkrail-artifacts-[0-9]{12}(-[a-z0-9-]+)?"
+    Description: The home bucket, where every region's optimizer keeps what it makes (images/*) and every router reads it.
+  StoreRegion:
+    Type: String
+    AllowedPattern: "[a-z]{2}(-[a-z]+)+-[0-9]"
+    Description: The home bucket's region.
+  RouterRole:
+    Type: String
+    Default: forkrail-router
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]{1,64}"
+    Description: The routers' role, the one role allowed to invoke the function.
+  MemorySize:
+    Type: Number
+    Default: 2048
+    MinValue: 128
+    MaxValue: 10240
+    Description: >-
+      MB. CPU comes with it (1,769 MB is one core); resizing is CPU-bound, so more is faster at about
+      the same cost. Less only where the account allows less (new accounts start low).
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      # Roles are account-wide and this stack is per region.
+      RoleName: !Sub forkrail-image-${AWS::Region}
+      Description: forkrail's image optimizer. Reads sources in its region's bucket, writes optimized images in the home bucket.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: images
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::${Bucket}/static/*
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::${StoreBucket}/images/*
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: forkrail-image
+      Description: forkrail's Image Optimization resizer (deploy/image). The routers invoke it on a cache miss.
+      Runtime: nodejs24.x
+      Architectures: [arm64]
+      Handler: index.handler
+      MemorySize: !Ref MemorySize
+      # A fetch elsewhere (10 s) and the resize (7 s); the router gives up at 30 s.
+      Timeout: 20
+      Role: !GetAtt Role.Arn
+      Environment:
+        Variables:
+          FORKRAIL_BUCKET: !Ref Bucket
+          FORKRAIL_STORE_BUCKET: !Ref StoreBucket
+          FORKRAIL_STORE_REGION: !Ref StoreRegion
+      Code:
+        S3Bucket: !Ref Bucket
+        S3Key: !Ref CodeKey
+
+  RoutersInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${RouterRole}
+
+Outputs:
+  FunctionArn:
+    Value: !GetAtt Function.Arn

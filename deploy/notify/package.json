@@ -1,0 +1,19 @@
+{
+  "name": "forkrail-notify",
+  "private": true,
+  "type": "module",
+  "description": "The install's events to its team: webhooks, the dashboard's notifications, and email through the install's own SES or SMTP (deploy/install/notify.yaml).",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "nodemailer": "10.3.1"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "3.1156.0",
+    "@aws-sdk/client-kms": "3.1156.0",
+    "@aws-sdk/client-sesv2": "3.1156.0",
+    "@aws-sdk/client-sqs": "3.1156.0",
+    "@aws-sdk/util-dynamodb": "3.996.9"
+  }
+}

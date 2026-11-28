@@ -1,0 +1,304 @@
+# Vector on each router instance: the router's hourly log files (JSON lines) to ClickHouse, in
+# batches every 2 seconds. Installed as /etc/vector/vector.yaml by `deploy/aws/test-env.sh vector`
+# (and `push`), which fills in:
+#   @REGION@, @INSTANCE@   this router's region and instance, on every row
+#   @ENDPOINT@             http://<private ip>:8123 in the box's region, else https://<ip>:8443
+#   #TLS#                  for HTTPS, the box's certificate (no name check: it's pinned)
+# The ingest user's password comes from SSM into a systemd credential, which Vector reads as a
+# secret. (Vector 0.60 doesn't put environment variables into its config without a flag it calls
+# dangerous.)
+# The files are the buffer: a file's position is saved only once ClickHouse has taken its lines
+# (end-to-end acknowledgements), so a box that's down or a Vector restart loses nothing while the
+# files last (48 hours).
+data_dir: /var/lib/vector
+
+secret:
+  creds:
+    type: directory
+    path: /run/credentials/forkrail-vector.service
+    remove_trailing_whitespace: true
+
+acknowledgements:
+  enabled: true
+
+sources:
+  router_log:
+    type: file
+    include:
+      - /var/log/forkrail/router.*.log
+    read_from: beginning
+    # On the first start, older hours are left to `analytics.sh backfill` from the S3 export.
+    ignore_older_secs: 600
+    max_line_bytes: 1048576
+    glob_minimum_cooldown_ms: 1000
+    fingerprint:
+      strategy: device_and_inode
+
+  # The instance itself, for the infrastructure pages: every 15 seconds.
+  host:
+    type: host_metrics
+    scrape_interval_secs: 15
+    collectors: [cpu, memory, load, host, filesystem, disk, network, tcp, cgroups]
+    filesystem:
+      mountpoints:
+        includes: ["/"]
+    disk:
+      devices:
+        includes: ["nvme?n?", "xvd?"]
+    network:
+      devices:
+        includes: ["ens*", "eth*"]
+    # Each service: the router (blue or green), Vector, the SSM agent and the rest.
+    cgroups:
+      base: system.slice
+      levels: 3
+
+transforms:
+  host_logs:
+    type: metric_to_log
+    inputs: [host]
+
+  host_rows:
+    type: remap
+    inputs: [host_logs]
+    source: |
+      # Of each service's cgroup, its CPU time and memory are enough.
+      if starts_with(string!(.name), "cgroup_") && !includes(["cgroup_cpu_usage_seconds_total", "cgroup_memory_current_bytes"], .name) {
+        abort
+      }
+      value = .gauge.value
+      if value == null { value = .counter.value }
+      if value == null { abort }
+      .tags = object(.tags) ?? {}
+      del(.tags.host)
+      del(.tags.collector)
+      . = {"time": .timestamp, "router_region": "@REGION@", "router": "@INSTANCE@", "name": .name,
+           "tags": .tags, "kind": .kind, "value": value}
+
+  parsed:
+    type: remap
+    inputs: [router_log]
+    drop_on_error: true
+    source: |
+      line = string!(.message)
+      # Text lines are from before the router wrote JSON (2026-11-09); the backfill has them.
+      if !starts_with(line, "{") { abort }
+      . = object!(parse_json!(line))
+      # A worker's life in five lines; the `invocation` line has all of it.
+      if includes(["spawning worker", "worker connected", "retiring worker", "worker disconnected", "worker ended"], .message) {
+        abort
+      }
+      .router_region = "@REGION@"
+      .router = "@INSTANCE@"
+
+  kinds:
+    type: route
+    inputs: [parsed]
+    reroute_unmatched: true
+    route:
+      request: '.message == "request"'
+      invocation: '.message == "invocation"'
+      app: '.message == "app log"'
+      outgoing: '.message == "outgoing"'
+      web: '.message == "web event"'
+
+  requests:
+    type: remap
+    inputs: [kinds.request]
+    source: |
+      .time = del(.timestamp)
+      del(.message)
+      del(.level)
+      del(.target)
+
+  invocations:
+    type: remap
+    inputs: [kinds.invocation]
+    source: |
+      .time = del(.timestamp)
+      del(.message)
+      del(.level)
+      del(.target)
+
+  app_logs:
+    type: remap
+    inputs: [kinds.app]
+    source: |
+      .received = del(.timestamp)
+      at, err = to_float(.line_ts)
+      if err == null {
+        .time = format_timestamp!(from_unix_timestamp!(to_int(at * 1000000.0), unit: "microseconds"), format: "%Y-%m-%dT%H:%M:%S%.6fZ", timezone: "UTC")
+      } else {
+        .time = .received
+      }
+      del(.line_ts)
+      del(.message)
+      del(.level)
+      del(.target)
+
+  outgoing:
+    type: remap
+    inputs: [kinds.outgoing]
+    source: |
+      .received = del(.timestamp)
+      at, err = to_float(.start_ts)
+      if err == null {
+        .time = format_timestamp!(from_unix_timestamp!(to_int(at * 1000000.0), unit: "microseconds"), format: "%Y-%m-%dT%H:%M:%S%.6fZ", timezone: "UTC")
+      } else {
+        .time = .received
+      }
+      .duration_ms = del(.ms)
+      del(.start_ts)
+      del(.message)
+      del(.level)
+      del(.target)
+
+  # Web Analytics' page views and events (crates/router/src/insights.rs): properties and flags
+  # arrive as JSON text, for the table's maps.
+  web_events:
+    type: remap
+    inputs: [kinds.web]
+    source: |
+      .time = del(.timestamp)
+      .properties = object(parse_json(string(.properties) ?? "{}") ?? {}) ?? {}
+      .flags = object(parse_json(string(.flags) ?? "{}") ?? {}) ?? {}
+      del(.message)
+      del(.level)
+      del(.target)
+
+  events:
+    type: remap
+    inputs: [kinds._unmatched]
+    source: |
+      t = del(.timestamp)
+      l = del(.level)
+      g = del(.target)
+      m = del(.message)
+      rr = del(.router_region)
+      r = del(.router)
+      w = del(.worker)
+      d = del(.deployment)
+      q = del(.request)
+      f = encode_json(.)
+      . = {"time": t, "level": l, "target": g, "message": m, "router_region": rr, "router": r,
+           "worker": w, "deployment": d, "request": q, "fields": f}
+
+sinks:
+  ch_requests:
+    type: clickhouse
+    inputs: [requests]
+    table: requests
+    endpoint: "@ENDPOINT@"
+    database: forkrail
+    auth: &auth
+      strategy: basic
+      user: ingest
+      password: "SECRET[creds.ch_password]"
+    compression: gzip
+    skip_unknown_fields: true
+    date_time_best_effort: true
+    batch: &batch
+      timeout_secs: 2
+      max_bytes: 8000000
+    buffer: &buffer
+      type: memory
+      max_events: 20000
+      when_full: block
+    request: &request
+      timeout_secs: 30
+#TLS#
+
+  ch_invocations:
+    type: clickhouse
+    inputs: [invocations]
+    table: invocations
+    endpoint: "@ENDPOINT@"
+    database: forkrail
+    auth: *auth
+    compression: gzip
+    skip_unknown_fields: true
+    date_time_best_effort: true
+    batch: *batch
+    buffer: *buffer
+    request: *request
+#TLS#
+
+  ch_app_logs:
+    type: clickhouse
+    inputs: [app_logs]
+    table: app_logs
+    endpoint: "@ENDPOINT@"
+    database: forkrail
+    auth: *auth
+    compression: gzip
+    skip_unknown_fields: true
+    date_time_best_effort: true
+    batch: *batch
+    buffer: *buffer
+    request: *request
+#TLS#
+
+  ch_outgoing:
+    type: clickhouse
+    inputs: [outgoing]
+    table: outgoing
+    endpoint: "@ENDPOINT@"
+    database: forkrail
+    auth: *auth
+    compression: gzip
+    skip_unknown_fields: true
+    date_time_best_effort: true
+    batch: *batch
+    buffer: *buffer
+    request: *request
+#TLS#
+
+  ch_web_events:
+    type: clickhouse
+    inputs: [web_events]
+    table: web_events
+    endpoint: "@ENDPOINT@"
+    database: forkrail
+    auth: *auth
+    compression: gzip
+    skip_unknown_fields: true
+    date_time_best_effort: true
+    batch: *batch
+    buffer: *buffer
+    request: *request
+#TLS#
+
+  ch_host:
+    type: clickhouse
+    inputs: [host_rows]
+    # Samples have no file to go back to; a lost batch is a 15-second gap.
+    acknowledgements:
+      enabled: false
+    table: host_metrics
+    endpoint: "@ENDPOINT@"
+    database: forkrail
+    auth: *auth
+    compression: gzip
+    skip_unknown_fields: true
+    date_time_best_effort: true
+    batch:
+      timeout_secs: 15
+      max_bytes: 8000000
+    buffer: *buffer
+    request: *request
+#TLS#
+
+  ch_events:
+    type: clickhouse
+    inputs: [events]
+    table: router_events
+    endpoint: "@ENDPOINT@"
+    database: forkrail
+    auth: *auth
+    compression: gzip
+    skip_unknown_fields: true
+    date_time_best_effort: true
+    batch: *batch
+    buffer: *buffer
+    request: *request
+#TLS#

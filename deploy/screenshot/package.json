@@ -1,0 +1,10 @@
+{
+  "name": "forkrail-screenshot",
+  "private": true,
+  "type": "module",
+  "description": "The dashboard's page previews: a screenshot of one URL with headless Chromium (deploy/install/screenshot.yaml).",
+  "dependencies": {
+    "@sparticuz/chromium": "153.0.0",
+    "puppeteer-core": "25.17.0"
+  }
+}

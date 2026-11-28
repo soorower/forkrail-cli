@@ -1,0 +1,135 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# Schedules (vercel.json's `crons` and `schedules`): the queue EventBridge Scheduler sends each run
+# to, and the role it sends them as. Apply it in the home region:
+#
+#   deploy/aws/stack.sh apply schedules AdminPrincipals=arn:aws:iam::<account>:root,<admin role ARN>
+#
+# In the policy's conditions the root's ARN is the root user alone: an administrator signed in
+# through a role (SSO, assumed) or as an IAM user is named by that role's ARN (path and all) or
+# the user's, as `forkrail install` passes the one that runs it.
+#
+# How a run goes (crates/common/src/schedules.rs): forkrail-control writes one Scheduler schedule
+# per entry of a project's production deployment, in the group forkrail-<project>, each sending a
+# small JSON message here. Every router long-polls the queue (FORKRAIL_SCHEDULE_QUEUE), takes a
+# message, deletes it, and makes the request to the project's production deployment itself, as it
+# would a visitor's. Run now (control) sends the same message straight to the queue.
+#
+# Who can use the queue: Scheduler, as forkrail-scheduler, forkrail-control and the install's
+# administrators (AdminPrincipals, the CLI's `--aws schedules run`) send to it; the routers' role
+# receives and deletes, each by its own IAM policy. The queue's policy refuses everyone else those
+# actions, whatever their own IAM policies say (the worker role apps run as, the builder, the
+# dashboard).
+# A message only names a project and a schedule's key: the router takes the path and method from
+# the production deployment's own entry in the routing table, so a message can't call anything a
+# deployment doesn't schedule.
+#
+# Cost: Scheduler's first 14 million runs a month are free ($1 a million after); the routers' long
+# polls are about 260,000 requests a month, within SQS's free million.
+Description: forkrail schedules - the SQS queue EventBridge Scheduler sends schedules' runs to, which the routers poll, and the role Scheduler sends as.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  AdminPrincipals:
+    Type: CommaDelimitedList
+    Description: The IAM principals (ARNs) that administer the install with the CLI's AWS credentials, which may send a run (Run now). The root user is arn:aws:iam::<account>:root, which here is the root user alone; a role's ARN (with its path) for administrators who sign in through one.
+  ControlRole:
+    Type: String
+    Default: forkrail-control
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]{1,64}"
+  RouterRole:
+    Type: String
+    Default: forkrail-router
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]{1,64}"
+
+Resources:
+  Queue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: forkrail-schedules
+      # A run that waits longer than its schedule allows is skipped by the router anyway; a day
+      # covers monthly and yearly crons, which are never too late, through a long outage.
+      MessageRetentionPeriod: 86400
+      # The router deletes a message as soon as it has it; this only matters if that fails.
+      VisibilityTimeout: 30
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  QueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref Queue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Within the account, each role's own IAM policy grants what it does: Scheduler's role and
+          # control may send (control.yaml), the routers' role receives and deletes (test-env.sh),
+          # and administrators have everything. So this policy only refuses everyone else, and
+          # names no principal (SQS refuses a policy naming a role IAM hasn't spread yet, such as
+          # the Scheduler role this stack creates).
+          # Nobody else sends, receives or deletes, whatever their IAM policies allow. The
+          # account's administrators can still change this policy, which isn't a data action.
+          - Sid: NobodyElse
+            Effect: Deny
+            Principal: "*"
+            Action:
+              - sqs:SendMessage
+              - sqs:ReceiveMessage
+              - sqs:DeleteMessage
+              - sqs:PurgeQueue
+            Resource: !GetAtt Queue.Arn
+            Condition:
+              ArnNotLike:
+                aws:PrincipalArn: !Split
+                  - ","
+                  - !Join
+                    - ","
+                    - - !GetAtt SchedulerRole.Arn
+                      - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ControlRole}
+                      - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${RouterRole}
+                      - !Join [",", !Ref AdminPrincipals]
+
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: forkrail-scheduler
+      Description: EventBridge Scheduler sends forkrail schedules' runs to the forkrail-schedules queue as this role.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+            # Only this account's schedules, and only forkrail's groups (Scheduler gives the
+            # schedule group's ARN as the source, not the schedule's).
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule-group/forkrail-*
+      Policies:
+        - PolicyName: forkrail-scheduler
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt Queue.Arn
+      Tags:
+        - Key: project
+          Value: forkrail
+
+Outputs:
+  QueueUrl:
+    Description: The routers' FORKRAIL_SCHEDULE_QUEUE (deploy/aws/test-env.sh router-env FORKRAIL_SCHEDULE_QUEUE=...).
+    Value: !Ref Queue
+  QueueArn:
+    Value: !GetAtt Queue.Arn
+  SchedulerRoleArn:
+    Value: !GetAtt SchedulerRole.Arn

@@ -1,0 +1,36 @@
+{
+  "providerId": "forkrail.com",
+  "providerName": "forkrail",
+  "serviceId": "custom-domain-apex",
+  "serviceName": "Custom domain (root)",
+  "version": 1,
+  "description": "Points a registered domain itself (example.com) at a project hosted on forkrail.com, for DNS providers that can't put a CNAME at the root: A records at forkrail.com's two fixed addresses, and optionally the _acme-challenge CNAME that lets forkrail get the domain's certificate before traffic moves. Which project serves the domain is set at forkrail, so the A records never vary.",
+  "variableDescription": "%acme%: 16 lowercase hex characters naming the domain's challenge record, the first 8 bytes of sha256('forkrail-acme:' + the domain).",
+  "syncBlock": false,
+  "syncPubKeyDomain": "forkrail.com",
+  "syncRedirectDomain": "forkrail.com",
+  "hostRequired": false,
+  "records": [
+    {
+      "groupId": "serve",
+      "type": "A",
+      "host": "@",
+      "pointsTo": "166.117.62.155",
+      "ttl": 300
+    },
+    {
+      "groupId": "serve",
+      "type": "A",
+      "host": "@",
+      "pointsTo": "166.117.229.22",
+      "ttl": 300
+    },
+    {
+      "groupId": "certificate",
+      "type": "CNAME",
+      "host": "_acme-challenge",
+      "pointsTo": "%acme%._acme.forkrail.com",
+      "ttl": 300
+    }
+  ]
+}

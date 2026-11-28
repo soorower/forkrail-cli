@@ -1,0 +1,82 @@
+<!-- Users, installed as /etc/clickhouse-server/users.d/forkrail.xml by deploy/aws/analytics.sh,
+     which fills in the password hashes from SSM (/forkrail/clickhouse/ingest, .../reader and
+     .../buildlog).
+     - default: no password, so only from the box itself (clickhouse-client through SSM).
+     - ingest: the routers' Vector; inserts (and reads, which the rollup views need).
+     - reader: the CLI and the dashboard; reads only, with limits that keep one query from taking
+       the box.
+     - buildlog: the dashboard's builds endpoint; inserts into build_logs and nothing else. -->
+<clickhouse>
+    <users>
+        <default>
+            <networks replace="replace">
+                <ip>::1</ip>
+                <ip>127.0.0.1</ip>
+            </networks>
+        </default>
+        <ingest>
+            <password_sha256_hex>@INGEST_SHA256@</password_sha256_hex>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>ingest</profile>
+            <quota>default</quota>
+            <grants>
+                <!-- SELECT too: a materialized view runs with the rights of whoever inserts. -->
+                <query>GRANT INSERT, SELECT ON forkrail.*</query>
+                <!-- The bench router's copy of the tables (deploy/aws/bench.sh), so load tests stay out of the real ones. -->
+                <query>GRANT INSERT, SELECT ON forkrail_bench.*</query>
+            </grants>
+        </ingest>
+        <reader>
+            <password_sha256_hex>@READER_SHA256@</password_sha256_hex>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>reader</profile>
+            <quota>default</quota>
+            <grants>
+                <query>GRANT SELECT ON forkrail.*</query>
+                <query>GRANT SELECT ON forkrail_bench.*</query>
+            </grants>
+        </reader>
+        <buildlog>
+            <password_sha256_hex>@BUILDLOG_SHA256@</password_sha256_hex>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>buildlog</profile>
+            <quota>default</quota>
+            <grants>
+                <query>GRANT INSERT ON forkrail.build_logs</query>
+            </grants>
+        </buildlog>
+    </users>
+    <profiles>
+        <ingest>
+            <max_memory_usage>536870912</max_memory_usage>
+            <date_time_input_format>best_effort</date_time_input_format>
+            <input_format_skip_unknown_fields>1</input_format_skip_unknown_fields>
+            <input_format_null_as_default>1</input_format_null_as_default>
+        </ingest>
+        <buildlog>
+            <max_memory_usage>268435456</max_memory_usage>
+            <date_time_input_format>best_effort</date_time_input_format>
+            <input_format_skip_unknown_fields>1</input_format_skip_unknown_fields>
+            <max_insert_threads>1</max_insert_threads>
+        </buildlog>
+        <reader>
+            <readonly>2</readonly>
+            <max_memory_usage>1073741824</max_memory_usage>
+            <max_execution_time>30</max_execution_time>
+            <max_threads>2</max_threads>
+            <max_result_rows>100000</max_result_rows>
+            <result_overflow_mode>break</result_overflow_mode>
+            <constraints>
+                <max_memory_usage><max>1073741824</max></max_memory_usage>
+                <max_execution_time><max>60</max></max_execution_time>
+                <max_threads><max>2</max></max_threads>
+            </constraints>
+        </reader>
+    </profiles>
+</clickhouse>

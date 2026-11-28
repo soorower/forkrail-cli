@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# The screenshot function, forkrail-screenshot: the dashboard's page previews. Given one URL of the
+# install's own hosts, it opens it in headless Chromium and answers a JPEG of the first screen
+# (deploy/screenshot/index.mjs). The dashboard keeps each image in S3 under previews/, one per
+# deployment, so a page is shot once. Apply it in the home region with the zip
+# deploy/aws/screenshot.sh built:
+#
+#   deploy/aws/screenshot.sh release
+#
+# Who can call it: only the dashboard's role, by the resource policy below, and the account's
+# administrators through IAM. Its role has no rights at all (not even CloudWatch Logs): what a page
+# runs inside the browser can reach nothing of the install. It runs on x86_64 because the Chromium
+# package for Lambda ships x86_64 binaries on npm.
+Description: forkrail's screenshot function, which the dashboard invokes for its page previews.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  CodeKey:
+    Type: String
+    AllowedPattern: "screenshot/forkrail-screenshot-[0-9a-f]{16}\\.zip"
+    Description: The function's zip in the install's bucket, as deploy/aws/screenshot.sh uploaded it.
+  DashboardRole:
+    Type: String
+    Default: forkrail-dashboard
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]{1,64}"
+    Description: The role the dashboard runs as, the one role allowed to invoke the function.
+  MemorySize:
+    Type: Number
+    Default: 2048
+    MinValue: 128
+    MaxValue: 10240
+    Description: >-
+      MB. Chromium wants 1.5 GB or more; less only where the account allows less (new accounts
+      start low), and previews then may fail until it allows more.
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: forkrail-screenshot
+      Description: forkrail's screenshot function. No rights.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: forkrail-screenshot
+      Description: forkrail's page previews (deploy/screenshot). The dashboard invokes it.
+      Runtime: nodejs22.x
+      Architectures: [x86_64]
+      Handler: index.handler
+      # Chromium wants 1.5 GB or more; a shot is a few seconds a deployment.
+      MemorySize: !Ref MemorySize
+      Timeout: 30
+      Role: !GetAtt Role.Arn
+      Code:
+        S3Bucket: !Sub forkrail-artifacts-${AWS::AccountId}
+        S3Key: !Ref CodeKey
+
+  DashboardInvokes:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DashboardRole}
+
+Outputs:
+  FunctionArn:
+    Value: !GetAtt Function.Arn

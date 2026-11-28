@@ -1,0 +1,228 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# Spend protection's last line (C15 P6), AWS's own: for when the routers' budgets and the guard
+# (deploy/install/guard.yaml) have both failed. AWS's bill is hours late, so this is slow; it only
+# has to be sure.
+#
+# - An AWS budget on everything tagged project=forkrail (fixed costs too), emailed at 80% and 100%
+#   of `Dollars` and when the month is forecast to pass it.
+# - At 100% of it, a budget action attaches a deny on invoking forkrail's functions to the
+#   routers', control's and the builder's roles: every app stops, the dashboard with them.
+#   Undo it from the AWS console (Budgets → the budget → Actions → reset) or with
+#   `aws iam detach-role-policy --role-name forkrail-router --policy-arn <StopPolicy output>`
+#   for each of the three roles.
+# - Cost Anomaly Detection on the same tag, emailed daily when an anomaly's impact passes
+#   `AnomalyDollars`.
+#
+# Needs the cost allocation tag `project` activated (Billing → Cost allocation tags: an account
+# setting the account's owner turns on; it applies from then, up to a day later). Until it is,
+# the budget sees nothing and never acts. A member account of an AWS organization can't turn it
+# on (only the organization's management account can): there, `Scope=account` makes the budget
+# count everything the account spends, and leaves Anomaly Detection to AWS's own monitor.
+#
+# Without `AlertEmail`, the budget tells `AlertTopic` (an SNS topic whose policy lets
+# budgets.amazonaws.com publish) instead: the limit still stops the functions.
+#
+# Set `Dollars` above what the install should ever cost in a month: the install's budget
+# (`forkrail spend show`) plus the fixed costs (`web/src/server/costs.ts`; about $133 for two
+# regions), plus a margin. Its cost: budgets are free, with the first two that have actions
+# (AWS's price, Nov 2026); Anomaly Detection is free.
+#
+# Apply it in us-east-1 (Budgets and Cost Explorer are global, kept there):
+#
+#   deploy/aws/stack.sh apply spend-backstop Dollars=400 AlertEmail=you@example.com
+Description: forkrail's spend backstop, AWS's own budget on the install's tag with an action that stops forkrail's functions.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  Dollars:
+    Type: Number
+    MinValue: 1
+    Description: The month's limit for everything tagged project=forkrail, fixed costs included. At it, forkrail's functions are stopped.
+  AlertEmail:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|[^@\\s]+@[^@\\s]+\\.[^@\\s]+"
+    Description: Who AWS emails (the budget's alerts, the action, anomalies). Empty for AlertTopic instead.
+  AlertTopic:
+    Type: String
+    Default: ""
+    Description: The SNS topic the budget tells when there's no AlertEmail.
+  Scope:
+    Type: String
+    Default: tag
+    AllowedValues: [tag, account]
+    Description: What the budget counts, everything tagged project=forkrail (tag) or everything the account spends (account).
+  AnomalyDollars:
+    Type: Number
+    Default: 20
+    MinValue: 1
+    Description: An anomaly whose impact passes this is emailed.
+
+Conditions:
+  HasEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+  ByTag: !Equals [!Ref Scope, tag]
+  # Anomaly Detection mails daily, and only a tag monitor is forkrail's own.
+  WatchAnomalies: !And [!Condition HasEmail, !Condition ByTag]
+
+Resources:
+  # Not attached until the budget's action attaches it.
+  StopPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: forkrail-spend-stop
+      Description: Attached by forkrail's AWS budget at its limit; stops every forkrail function from being invoked. Detach it to resume.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: StopForkrailFunctions
+            Effect: Deny
+            Action: lambda:InvokeFunction
+            Resource:
+              - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-app-*
+              - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-builder*
+              # The image optimizer, which the routers run for any visitor's /_vercel/image miss.
+              - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-image*
+
+  # What the budget acts as: it may attach and detach that one policy, on those three roles.
+  ActionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: forkrail-spend-backstop
+      Description: AWS Budgets acting for forkrail's spend backstop.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: budgets.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: attach-the-stop
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-router
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-control
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-builder
+                Condition:
+                  ArnEquals:
+                    iam:PolicyARN: !Ref StopPolicy
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  Budget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: forkrail-spend-backstop
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref Dollars
+          Unit: USD
+        CostFilters: !If
+          - ByTag
+          - TagKeyValue:
+              - user:project$forkrail
+          - !Ref AWS::NoValue
+        CostTypes:
+          IncludeCredit: false
+          IncludeRefund: false
+          IncludeTax: false
+          IncludeSupport: false
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers: !If
+            - HasEmail
+            - - SubscriptionType: EMAIL
+                Address: !Ref AlertEmail
+            - - SubscriptionType: SNS
+                Address: !Ref AlertTopic
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers: !If
+            - HasEmail
+            - - SubscriptionType: EMAIL
+                Address: !Ref AlertEmail
+            - - SubscriptionType: SNS
+                Address: !Ref AlertTopic
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers: !If
+            - HasEmail
+            - - SubscriptionType: EMAIL
+                Address: !Ref AlertEmail
+            - - SubscriptionType: SNS
+                Address: !Ref AlertTopic
+
+  Stop:
+    Type: AWS::Budgets::BudgetsAction
+    Properties:
+      BudgetName: !Ref Budget
+      ActionType: APPLY_IAM_POLICY
+      ActionThreshold:
+        Type: PERCENTAGE
+        Value: 100
+      NotificationType: ACTUAL
+      ApprovalModel: AUTOMATIC
+      ExecutionRoleArn: !GetAtt ActionRole.Arn
+      Definition:
+        IamActionDefinition:
+          PolicyArn: !Ref StopPolicy
+          Roles:
+            - forkrail-router
+            - forkrail-control
+            - forkrail-builder
+      Subscribers: !If
+        - HasEmail
+        - - Type: EMAIL
+            Address: !Ref AlertEmail
+        - - Type: SNS
+            Address: !Ref AlertTopic
+
+  AnomalyMonitor:
+    Type: AWS::CE::AnomalyMonitor
+    Condition: WatchAnomalies
+    Properties:
+      MonitorName: forkrail
+      MonitorType: CUSTOM
+      MonitorSpecification: '{"Tags": {"Key": "project", "Values": ["forkrail"], "MatchOptions": ["EQUALS"]}}'
+
+  AnomalyAlerts:
+    Type: AWS::CE::AnomalySubscription
+    Condition: WatchAnomalies
+    Properties:
+      SubscriptionName: forkrail
+      Frequency: DAILY
+      MonitorArnList:
+        - !Ref AnomalyMonitor
+      Subscribers:
+        - Type: EMAIL
+          Address: !Ref AlertEmail
+      ThresholdExpression: !Sub '{"Dimensions": {"Key": "ANOMALY_TOTAL_IMPACT_ABSOLUTE", "MatchOptions": ["GREATER_THAN_OR_EQUAL"], "Values": ["${AnomalyDollars}"]}}'
+
+Outputs:
+  StopPolicy:
+    Description: Detach this from forkrail-router, forkrail-control and forkrail-builder to resume after the backstop acted.
+    Value: !Ref StopPolicy

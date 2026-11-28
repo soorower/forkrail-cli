@@ -1,0 +1,27 @@
+{
+  "name": "@forkrail/analytics",
+  "version": "0.1.0",
+  "description": "Web Analytics for apps on forkrail: page views and custom events, no cookies, kept in your own AWS account.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": { "types": "./index.d.ts", "default": "./index.js" },
+    "./astro": { "types": "./astro/index.d.ts", "default": "./astro/index.astro" },
+    "./next": { "types": "./next.d.ts", "default": "./next.js" },
+    "./nuxt": { "types": "./nuxt.d.ts", "default": "./nuxt.js" },
+    "./react": { "types": "./react.d.ts", "default": "./react.js" },
+    "./remix": { "types": "./remix.d.ts", "default": "./remix.js" },
+    "./server": { "types": "./server.d.ts", "default": "./server.js" },
+    "./sveltekit": { "types": "./sveltekit.d.ts", "default": "./sveltekit.js" },
+    "./vue": { "types": "./vue.d.ts", "default": "./vue.js" }
+  },
+  "files": ["*.js", "*.d.ts", "astro", "README.md", "LICENSE", "!test.js"],
+  "peerDependencies": { "@nuxt/kit": ">=3", "next": ">=13.4", "react": ">=18", "vue": ">=3" },
+  "peerDependenciesMeta": { "@nuxt/kit": { "optional": true }, "next": { "optional": true }, "react": { "optional": true }, "vue": { "optional": true } },
+  "scripts": { "test": "node --test test.js" },
+  "repository": { "type": "git", "url": "git+https://github.com/soorower/forkrail-cli.git", "directory": "packages/analytics" },
+  "homepage": "https://github.com/soorower/forkrail-cli/tree/main/packages/analytics#readme",
+  "keywords": ["analytics", "web-analytics", "forkrail", "privacy", "cookieless", "nextjs", "react", "vue", "svelte", "astro", "nuxt"],
+  "publishConfig": { "access": "public" }
+}

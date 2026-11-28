@@ -1,0 +1,73 @@
+{
+  "framework": null,
+  "redirects": [
+    {
+      "source": "/fn-old/:id",
+      "destination": "/fn/:id"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/fn-ct/:x",
+      "destination": "/api/main"
+    },
+    {
+      "source": "/fn/:id",
+      "destination": "/api/main?item=:id"
+    },
+    {
+      "source": "/fn2/:path*",
+      "destination": "/api/main"
+    },
+    {
+      "source": "/named/:a/:b",
+      "destination": "/api/main?b=:b"
+    },
+    {
+      "source": "/teapot",
+      "destination": "/api/main",
+      "statusCode": 418
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/api/main"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/fn/(.*)",
+      "headers": [
+        {
+          "key": "x-fn",
+          "value": "1"
+        },
+        {
+          "key": "x-own",
+          "value": "rule"
+        }
+      ]
+    },
+    {
+      "source": "/hello.txt",
+      "headers": [
+        {
+          "key": "x-static",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "source": "/fn-ct/(.*)",
+      "headers": [
+        {
+          "key": "content-type",
+          "value": "text/x-rule"
+        },
+        {
+          "key": "cache-control",
+          "value": "public, max-age=60"
+        }
+      ]
+    }
+  ]
+}

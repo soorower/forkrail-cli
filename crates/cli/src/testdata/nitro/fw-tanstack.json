@@ -1,0 +1,84 @@
+{
+ "note": "Nitro's Build Output for test-apps/fw-tanstack as forkrail's build left it (2026-11-16, skew protection on, deployment id f8test), in short: config.json, every function (a link, or its .vc-config.json) and prerender config, the static files' paths; and the project's vercel.json. The import of it is checked against fw-tanstack.golden.json.",
+ "framework": "TanStack Start",
+ "vercel_json": {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "tanstack-start"
+ },
+ "config": {
+  "version": 3,
+  "framework": {
+   "name": "nitro",
+   "version": "3.0.261103-rc"
+  },
+  "overrides": {},
+  "routes": [
+   {
+    "src": "^\\/assets(?:\\/(?<_0>(?:[\\s\\S]*[^/])?\\/*?))??\\/?$",
+    "headers": {
+     "cache-control": "public, max-age=31536000, immutable"
+    },
+    "continue": true
+   },
+   {
+    "src": "/.*",
+    "has": [
+     {
+      "type": "header",
+      "key": "Sec-Fetch-Dest",
+      "value": "document"
+     }
+    ],
+    "headers": {
+     "Set-Cookie": "__vdpl=f8test; Path=/; SameSite=Lax; Secure; HttpOnly"
+    },
+    "continue": true
+   },
+   {
+    "handle": "filesystem"
+   },
+   {
+    "src": "/assets/(.*)",
+    "status": 404,
+    "headers": {
+     "cache-control": "no-store"
+    },
+    "continue": false
+   },
+   {
+    "src": "/(.*)",
+    "dest": "/__server"
+   }
+  ]
+ },
+ "functions": {
+  "/__server": {
+   "vc": {
+    "handler": "index.mjs",
+    "launcherType": "Nodejs",
+    "shouldAddHelpers": false,
+    "supportsResponseStreaming": true,
+    "runtime": "nodejs26.x"
+   }
+  }
+ },
+ "prerenders": {},
+ "static": [
+  "/assets/fn-12QQ4c7H.js",
+  "/assets/index-DN4m9ntb.js",
+  "/assets/link-CynBsKXS.js",
+  "/assets/routes-uHTAJH9c.js",
+  "/assets/ssr-D2vqqv4M.js",
+  "/assets/stream-CSaKem4g.js",
+  "/assets/styles-B01O47Az.css",
+  "/assets/useRouter-CEYNGMZu.js"
+ ],
+ "requests": [
+  "/",
+  "/ssr?a=1",
+  "/api/hello",
+  "/assets/nope.js",
+  "/missing",
+  "/__server"
+ ]
+}

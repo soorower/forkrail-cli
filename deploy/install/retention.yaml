@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# Retention's daily run (crates/cli/src/retention.rs): EventBridge Scheduler asks forkrail-control
+# once a day to run every project's retention policy, as every publish already does for its own
+# project. What a policy no longer keeps is deleted restorably (out of the routing table, every
+# file and Lambda version kept), and deleted deployments whose time is up (30 days at most) are
+# deleted for good. Apply it in the home region, after the control function that knows the
+# `retention` action:
+#
+#   forkrail retention sweep        # first: the dry run, what the first run would delete
+#   deploy/aws/stack.sh apply retention
+#
+# Who can start a run: Scheduler, as forkrail-retention, which may invoke forkrail-control and
+# nothing else, and only for schedules in this stack's group (forkrail). The run's request is fixed
+# here; control acts on it with no person's role (as on a push) and logs it as `schedule`. The group
+# is `forkrail`, not `forkrail-*`, so control (whose Scheduler rights are on projects' forkrail-*
+# groups) can't change it, and no project's group can take its name.
+#
+# Cost: one run a day, within Scheduler's free 14 million a month; one control invocation of a few
+# seconds at 1 GB (about $0.0001 a run); the deletes are API calls with no charge.
+Description: forkrail retention - EventBridge Scheduler runs every project's deployment retention policy once a day through forkrail-control.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  ControlFunction:
+    Type: String
+    Default: forkrail-control
+    AllowedPattern: "[A-Za-z0-9_-]{1,64}"
+    Description: The control function the run invokes.
+  Schedule:
+    Type: String
+    # 04:17 UTC: off the hour, when the install is quietest.
+    Default: cron(17 4 * * ? *)
+    Description: When the run happens, as an EventBridge Scheduler expression in UTC.
+  State:
+    Type: String
+    Default: ENABLED
+    AllowedValues: [ENABLED, DISABLED]
+    Description: DISABLED keeps everything in place without running (every publish still runs its own project's policy).
+
+Resources:
+  Group:
+    Type: AWS::Scheduler::ScheduleGroup
+    Properties:
+      Name: forkrail
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: forkrail-retention
+      Description: EventBridge Scheduler invokes forkrail-control as this role, once a day, to run deployment retention.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+            # Only this account's schedules in this stack's group (Scheduler gives the group's ARN
+            # as the source).
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnEquals:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule-group/forkrail
+      Policies:
+        - PolicyName: forkrail-retention
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ControlFunction}
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  Daily:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: retention
+      GroupName: !Ref Group
+      Description: Runs every project's deployment retention policy (forkrail retention sweep).
+      ScheduleExpression: !Ref Schedule
+      ScheduleExpressionTimezone: UTC
+      FlexibleTimeWindow:
+        Mode: FLEXIBLE
+        MaximumWindowInMinutes: 30
+      State: !Ref State
+      Target:
+        Arn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ControlFunction}
+        RoleArn: !GetAtt Role.Arn
+        Input: '{"action": "retention", "op": "sweep", "actor": "schedule"}'
+        # A run that failed is the next day's to finish: every step can run again.
+        RetryPolicy:
+          MaximumRetryAttempts: 0
+          MaximumEventAgeInSeconds: 3600
+
+Outputs:
+  # Built, not !GetAtt Daily.Arn: CloudFormation looks a schedule up in the default group for its
+  # Arn, so a schedule in another group fails the stack (seen 2026-11-15).
+  ScheduleArn:
+    Value: !Sub arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/${Group}/${Daily}
+  RoleArn:
+    Value: !GetAtt Role.Arn

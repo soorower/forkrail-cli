@@ -1,0 +1,54 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# The install's container images: the builder's, which deploy/aws/builder.sh assembles and pushes.
+# Apply it once, before the builder's own stack:
+#
+#   deploy/aws/builder.sh repo
+#
+# Only the builder function may pull from it, by the repository policy below; pushing is for the
+# account's administrators, through IAM.
+Description: forkrail's ECR repository for the builder's container image, which deploy/aws/builder.sh pushes.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Resources:
+  BuilderImages:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: forkrail-builder
+      # The function names its image by digest; tags only label releases.
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: >-
+          {"rules": [{"rulePriority": 1, "description": "Keep the five newest images: the one the builder runs and the ones before it",
+          "selection": {"tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 5}, "action": {"type": "expire"}}]}
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TheBuilderPulls
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+              - ecr:BatchGetImage
+              - ecr:GetDownloadUrlForLayer
+            Condition:
+              StringLike:
+                # The builder and the large builder (builder.yaml), which runs the same image.
+                aws:sourceArn:
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:forkrail-builder
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:forkrail-builder-large
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Lambda runs a container image only from ECR in its own account and region; images are kept if the stack goes, since the builder may be running one.
+        must: Only the forkrail-builder and forkrail-builder-large functions may pull; never public.
+
+Outputs:
+  RepositoryUri:
+    Value: !GetAtt BuilderImages.RepositoryUri

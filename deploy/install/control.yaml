@@ -1,0 +1,551 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# The control function, forkrail-control: what the dashboard calls to promote, roll back and
+# redeploy, change a project's function settings and env vars, read a deployment's files, connect
+# a project to a GitHub repository and build what's pushed to it. It runs the CLI's own code
+# (crates/control) with the rights publishing needs, so the dashboard itself never has them.
+# Apply it in the home region, with the code deploy/aws/control.sh built:
+#
+#   deploy/aws/control.sh release
+#
+# Who can call it: only the dashboard's role, by the resource policy below, the builds topic (by
+# the builder stack's own permission; it checks those notices against deployments' records), and
+# the account's administrators through IAM. It has no function URL. What it can do is what
+# publishing needs and no more: write the install's state, publish versions of forkrail-app-*
+# functions, decrypt and write env var values under alias/forkrail-env, pass forkrail-* roles to
+# Lambda (never its own), start and finish remote builds, and read the GitHub App's private key,
+# which it alone asks GitHub for repositories and commits with.
+Description: forkrail's control function, which the dashboard invokes to change deployments, project settings and env vars.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  CodeKey:
+    Type: String
+    AllowedPattern: "control/forkrail-control-[0-9a-f]{16}\\.zip"
+    Description: The function's zip in the install's bucket, as deploy/aws/control.sh uploaded it.
+  DashboardRole:
+    Type: String
+    Default: forkrail-dashboard
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]{1,64}"
+    Description: The role the dashboard runs as, the one role allowed to invoke the function.
+  ReservedConcurrency:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 20
+    Description: >-
+      How many of the region's Lambda concurrency are kept for this function, so it still runs
+      (pausing a project over its budget among the rest) when apps have taken every other slot.
+      It caps no app. AWS keeps 100 of a region's concurrency unreserved, so an account limited
+      to less than about 110 can reserve none; 0 reserves none.
+  MemorySize:
+    Type: Number
+    Default: 1024
+    MinValue: 256
+    MaxValue: 10240
+    Description: MB. Less only where the account allows less (new accounts start low).
+
+Conditions:
+  Reserved: !Not [!Equals [!Ref ReservedConcurrency, 0]]
+
+Resources:
+  # Its audit trail: one line per call, with who asked and what about (never a value). Small, so
+  # kept a year, and kept if the stack goes.
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /aws/lambda/forkrail-control
+      RetentionInDays: 365
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: forkrail-control
+      Description: forkrail's control function. Publishes deployments and writes env var values for the dashboard.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: control
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadState
+                Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/packages/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/static/*
+                  # Deployments' kept source, for the dashboard's Source view.
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/sources/*
+                  # Remote builds' sources (a rebuild's, and the builder's presigned URL), and their
+                  # orders and output.
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/uploads/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/builds/*
+                  # The builder's copy of a log, which publishing's lines are added to.
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/logs/builds/*
+                  # Projects' build caches, which the builder reads through URLs this role presigns.
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/cache/*
+              # state/ also holds every certificate's private key and the ACME account key: only the
+              # routers read those. Control looks at cert.pem at most, never the keys.
+              - Sid: NoCertificateKeys
+                Effect: Deny
+                Action: s3:GetObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/certs/*/key.pem
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/certs/*/account.json
+              # A missing key reads as 404 only with ListBucket; without it S3 says 403.
+              - Sid: ListState
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}
+              - Sid: WriteState
+                Effect: Allow
+                Action: s3:PutObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/routes.json
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/projects/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/deployments/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/locks/*
+                  # Projects' own redirects and routing rules: their versions (project_routing.rs).
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/routing/*
+                  # Projects' and the install's firewalls: their versions (firewall.rs).
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/firewall/*
+                  # The install's default retention policy (retention.rs), an owner's to change.
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/retention.json
+              # Pruned deployments' records, and publish locks.
+              - Sid: DeleteState
+                Effect: Allow
+                Action: s3:DeleteObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/deployments/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/locks/*
+              # A deleted project's (the CLI's project.rs): its file's copy, the versions of its
+              # redirects, routing rules and firewall, its build caches and its page previews.
+              - Sid: DeletedProjects
+                Effect: Allow
+                Action: s3:DeleteObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/projects/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/routing/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/firewall/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/cache/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/previews/*
+              # A remote build's order (encrypted under the env key), its output (which the builder
+              # writes through a URL this role presigns), both deleted when it ends.
+              - Sid: RemoteBuilds
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/builds/*
+              # Publishing a remote build: its package, static files and kept source, by content.
+              - Sid: PublishBuilds
+                Effect: Allow
+                Action: s3:PutObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/packages/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/static/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/sources/*
+              # Projects' build caches (their node_modules or Python requirements, kept between
+              # builds), which the builder writes through a URL this role presigns for one project's.
+              - Sid: BuildCaches
+                Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/cache/*
+              # A pushed commit's files, fetched from GitHub and kept where a remote build's source
+              # goes (encrypted under the env key, like the CLI's uploads).
+              - Sid: PushedSources
+                Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/uploads/*
+              # What only removed deployments used (the CLI's storage.rs): their packages, in every
+              # region's bucket, their kept sources and their uploads. Lambda keeps its own copy of
+              # each published version's code, so nothing that runs reads these.
+              - Sid: RemovedDeploymentsFiles
+                Effect: Allow
+                Action: s3:DeleteObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/packages/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/sources/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/uploads/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}-*/packages/*
+              - Sid: StartBuilds
+                Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:forkrail-builder
+                  # A build that ran out of the builder's memory, once more (remote.rs `again_large`).
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:forkrail-builder-large
+              # A redeploy's build log, kept when it ends, and pruned deployments' logs; a remote
+              # build's, which the builder writes through a URL this role presigns.
+              - Sid: BuildLogs
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/logs/builds/*
+              # Other regions' package buckets: a redeploy copies the package and static files there
+              # if they're missing.
+              - Sid: RegionBuckets
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketTagging
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}-*
+              - Sid: RegionObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}-*/packages/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}-*/static/*
+              # Setting a region up when a project picks it (the CLI's regions::prepare): its code
+              # bucket...
+              - Sid: RegionCodeBuckets
+                Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:PutBucketTagging
+                  - s3:PutBucketPublicAccessBlock
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}-*
+              # ...and its env var key, made as secrets.yaml makes the home region's and tagged
+              # forkrail-key=env, so the rights to set a key up reach only keys made this way.
+              # Never kms:PutKeyPolicy or kms:ScheduleKeyDeletion.
+              - Sid: RegionEnvKeyCreate
+                Effect: Allow
+                Action:
+                  - kms:CreateKey
+                  - kms:TagResource
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestTag/project: forkrail
+                    aws:RequestTag/forkrail-key: env
+                  ForAllValues:StringEquals:
+                    aws:TagKeys:
+                      - project
+                      - forkrail-key
+              - Sid: RegionEnvKeySetup
+                Effect: Allow
+                Action:
+                  - kms:EnableKeyRotation
+                  - kms:CreateAlias
+                Resource: !Sub arn:${AWS::Partition}:kms:*:${AWS::AccountId}:key/*
+                Condition:
+                  StringEquals:
+                    aws:ResourceTag/forkrail-key: env
+              - Sid: RegionEnvKeyAlias
+                Effect: Allow
+                Action: kms:CreateAlias
+                Resource: !Sub arn:${AWS::Partition}:kms:*:${AWS::AccountId}:alias/forkrail-env
+              # Projects' functions in every region; never another function in the account. The
+              # code also checks each function's project=forkrail tag before changing it.
+              - Sid: ProjectFunctions
+                Effect: Allow
+                Action:
+                  - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
+                  - lambda:ListTags
+                  - lambda:CreateFunction
+                  - lambda:TagResource
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:PublishVersion
+                  - lambda:DeleteFunction
+                  # Warm-ups before production moves (the CLI's warm.rs): an invocation that
+                  # starts the app in a new environment and returns, with no request to the app.
+                  - lambda:InvokeFunction
+                  # A project paused for its spend budget gets a reserved concurrency of 0, so
+                  # Lambda itself refuses its invocations; a resume takes it off (spend.rs).
+                  - lambda:PutFunctionConcurrency
+                  - lambda:DeleteFunctionConcurrency
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-app-*
+                  - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-app-*:*
+              # Sealed env files (lambda.rs, forkrail_common::envfile): a deployment whose env vars
+              # don't fit Lambda's 4 KB gets a layer version holding them, deleted once its
+              # function version is published. Setting a function's layers needs GetLayerVersion.
+              - Sid: EnvLayers
+                Effect: Allow
+                Action:
+                  - lambda:PublishLayerVersion
+                  - lambda:GetLayerVersion
+                  - lambda:DeleteLayerVersion
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:layer:forkrail-env-*
+                  - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:layer:forkrail-env-*:*
+              # The role a project's functions run as: forkrail-worker, or the project's own.
+              - Sid: PassProjectRoles
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-*
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: lambda.amazonaws.com
+              # Schedules (schedules.rs): each project's EventBridge Scheduler group and its
+              # schedules, written from its production deployment (deploy/install/schedules.yaml).
+              - Sid: ProjectSchedules
+                Effect: Allow
+                Action:
+                  - scheduler:CreateSchedule
+                  - scheduler:UpdateSchedule
+                  - scheduler:DeleteSchedule
+                  - scheduler:GetSchedule
+                Resource: !Sub arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/forkrail-*/*
+              - Sid: ProjectScheduleGroups
+                Effect: Allow
+                Action:
+                  - scheduler:CreateScheduleGroup
+                  - scheduler:GetScheduleGroup
+                  - scheduler:DeleteScheduleGroup
+                  - scheduler:TagResource
+                Resource: !Sub arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule-group/forkrail-*
+              - Sid: ListSchedules
+                Effect: Allow
+                Action: scheduler:ListSchedules
+                Resource: "*"
+              # Scheduler sends runs as forkrail-scheduler, and only to the queue.
+              - Sid: PassSchedulerRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-scheduler
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: scheduler.amazonaws.com
+              # Run now: a run's message, straight to the queue.
+              - Sid: RunNow
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:forkrail-schedules
+              # What happens to deployments, for the team's webhooks and notifications (events.rs,
+              # deploy/install/notify.yaml).
+              - Sid: Events
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:forkrail-events
+              # The routers' spend pauses (crates/router/src/budgets.rs), which it records.
+              - Sid: SpendPauses
+                Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ChangeMessageVisibility
+                Resource: !GetAtt SpendQueue.Arn
+              # The dashboard's role isn't denied here: the dashboard is a project too, and publishing
+              # it passes its role. That a project's role changes only through the admin CLI is
+              # control's own code (main.rs refuses `role`).
+              # Nor any other of forkrail's own (each trusts Lambda, and other stacks admit it by
+              # name: the notifier's decrypts every webhook secret): a project's role is its own.
+              - Sid: NeverPassOwnRoles
+                Effect: Deny
+                Action: iam:PassRole
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-control
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-router
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-notify
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-guard
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-builder
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-screenshot
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-cost-tags
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-image-*
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-analytics
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-retention
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-spend-backstop
+              # Project files and deployment records, once they're in the state table
+              # (deploy/install/state.yaml): one item at a time, and the listing index.
+              - Sid: StateTable
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:ConditionCheckItem
+                Resource:
+                  - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/forkrail-state
+                  - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/forkrail-state/index/*
+              # The table's key, through DynamoDB only.
+              - Sid: StateKey
+                Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:Decrypt
+                  - kms:Encrypt
+                  - kms:GenerateDataKey*
+                  - kms:ReEncrypt*
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    kms:ResourceAliases: alias/forkrail-state
+                  StringEquals:
+                    kms:ViaService: !Sub dynamodb.${AWS::Region}.amazonaws.com
+              # Env var values (SSM, home region), functions' environments (Lambda, every region) and
+              # sealed uploads and build orders (S3), under the install's key in each region and no
+              # other key, and only through those services.
+              - Sid: EnvKey
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:Encrypt
+                  - kms:GenerateDataKey
+                Resource: !Sub arn:${AWS::Partition}:kms:*:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    kms:ResourceAliases: alias/forkrail-env
+                  StringLike:
+                    kms:ViaService:
+                      - ssm.*.amazonaws.com
+                      - lambda.*.amazonaws.com
+                      - s3.*.amazonaws.com
+              # The key's ARN in each region, looked up before publishing (the CLI's deploy.rs).
+              - Sid: EnvKeyDescribe
+                Effect: Allow
+                Action: kms:DescribeKey
+                Resource: !Sub arn:${AWS::Partition}:kms:*:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    kms:ResourceAliases: alias/forkrail-env
+              # Lambda creates a grant on the key for a function's environment.
+              - Sid: EnvKeyGrantsForLambda
+                Effect: Allow
+                Action: kms:CreateGrant
+                Resource: !Sub arn:${AWS::Partition}:kms:*:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    kms:ResourceAliases: alias/forkrail-env
+                  Bool:
+                    kms:GrantIsForAWSResource: "true"
+              - Sid: EnvValues
+                Effect: Allow
+                Action:
+                  - ssm:GetParametersByPath
+                  - ssm:PutParameter
+                  - ssm:DeleteParameter
+                  - ssm:AddTagsToResource
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/env/*
+              # The install's GitHub App: its record, and the private key it asks GitHub with (a
+              # SecureString under the env key, which the dashboard's role can't decrypt).
+              - Sid: GithubApp
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/github/app
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/github/private-key
+              - Sid: OwnLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt LogGroup.Arn
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: The rights publishing needs, held by a function only IAM can reach, so neither the internet-facing routers nor the dashboard hold them.
+        must: Never kms:Decrypt beyond alias/forkrail-env (and alias/forkrail-state through DynamoDB), never Lambda beyond forkrail-app-*, never iam:PassRole on its own role or the routers'. Never Scan, export or restore the state table. The GitHub App's private key is read here and by no other role of the install.
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: forkrail-control
+      Description: forkrail's control function (crates/control). The dashboard invokes it.
+      Runtime: provided.al2023
+      Architectures: [arm64]
+      Handler: bootstrap
+      MemorySize: !Ref MemorySize
+      # A publish waits for another of the same project to finish, and publishes in every region.
+      Timeout: 900
+      # A remote build's output is unzipped here to publish: a package of up to 250 MB and its
+      # static files.
+      EphemeralStorage:
+        Size: 2048
+      Role: !GetAtt Role.Arn
+      ReservedConcurrentExecutions: !If [Reserved, !Ref ReservedConcurrency, !Ref AWS::NoValue]
+      Code:
+        S3Bucket: !Sub forkrail-artifacts-${AWS::AccountId}
+        S3Key: !Ref CodeKey
+      LoggingConfig:
+        LogGroup: !Ref LogGroup
+        LogFormat: Text
+
+  # The dashboard's role may invoke it. The builder stack lets the builds topic in too; nothing else
+  # is let in by the function's policy.
+  DashboardInvokes:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DashboardRole}
+
+  # A router that finds a project's budget reached says so here (FORKRAIL_SPEND_QUEUE): the
+  # function records the pause and sets the project's reserved concurrency to 0. Both routers say
+  # it; the second changes nothing. One that keeps failing goes to the dead-letter queue, kept two
+  # weeks, while the routers go on refusing the project themselves.
+  SpendQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: forkrail-spend
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 345600
+      # At least the function's timeout, as Lambda requires of a queue it reads.
+      VisibilityTimeout: 960
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt SpendDeadLetters.Arn
+        maxReceiveCount: 5
+
+  # A pause sets a project's functions to nothing: of the forkrail-* roles (projects' own roles
+  # are named so, and run their apps' code), only the routers and the spend guard send one.
+  SpendQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref SpendQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: OnlyRoutersAndTheGuard
+            Effect: Deny
+            Principal: "*"
+            Action: sqs:SendMessage
+            Resource: !GetAtt SpendQueue.Arn
+            Condition:
+              ArnLike:
+                aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-*
+              ArnNotLike:
+                aws:PrincipalArn:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-router
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-guard
+
+  SpendDeadLetters:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: forkrail-spend-dead
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+
+  SpendPausesIn:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref Function
+      EventSourceArn: !GetAtt SpendQueue.Arn
+      BatchSize: 10
+      FunctionResponseTypes: [ReportBatchItemFailures]
+
+Outputs:
+  SpendQueueUrl:
+    Value: !Ref SpendQueue
+  FunctionArn:
+    Value: !GetAtt Function.Arn
+  RoleArn:
+    Value: !GetAtt Role.Arn

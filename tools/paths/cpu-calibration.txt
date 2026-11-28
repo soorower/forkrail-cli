@@ -1,0 +1,15 @@
+# Requests that burn a known amount of CPU, for `tools/tune-memory.py calibrate`.
+/work/cpu:1
+/work/cpu:2
+/work/cpu:5
+/work/cpu:10
+/work/cpu:20
+/work/cpu:50
+/work/cpu:100
+/work/cpu:200
+/work/cpu:5,io:50,cpu:5
+/work/cpu:20,io:100,cpu:20
+/work/cpu:3
+/work/cpu:8
+/work/cpu:15
+/work/cpu:30

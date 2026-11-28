@@ -1,0 +1,212 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# forkrail-guard (crates/guard): spend protection's second line, apart from the routers. Every few
+# minutes it reads AWS's own numbers (Lambda's Duration for every forkrail function, in every
+# region; the egress Global Accelerator counted) and pauses a project whose budget they show
+# reached, which the routers should have done within a second. It sets the project's function's
+# reserved concurrency to 0 in every region and tells control (forkrail-spend), which records the
+# pause; it tells the team (forkrail-events). It also says when AWS shows more function time than
+# the routers' ledger (state/spend/<region>.json): the meter is missing something. And it counts
+# forkrail's own costs, which no router sees (storage, the state table and the dashboard's,
+# control and the other functions of its own: crates/guard/src/own.rs), into
+# state/spend/own.json, which the routers and the dashboard add to the team's spend.
+#
+# Its cost: the Lambda itself, cents a month; once a day, yesterday's bill from Cost Explorer ($0.01
+# a look, about $0.30 a month; it needs the `project` cost allocation tag active); and CloudWatch's
+# GetMetricStatistics, which is in CloudWatch's free million requests a month: two a run (the
+# account's Duration in each region), and once an hour, or when a budget comes near, one per
+# forkrail function in each region and about 20 for forkrail's own costs. For 50 projects in two
+# regions that's about 90,000 a month (850,000 if the whole month is spent near a budget), so
+# nothing; past the free million, $0.01 per 1,000. About $0.35 a month in all.
+#
+# Apply it in the home region after control and the notifier (it sends to their queues), with the
+# zip deploy/aws/guard.sh built:
+#
+#   deploy/aws/guard.sh release
+Description: forkrail's spend guard, which holds AWS's own numbers against the budgets and pauses what the routers missed.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  CodeKey:
+    Type: String
+    AllowedPattern: "guard/forkrail-guard-[0-9a-f]{16}\\.zip"
+    Description: The function's zip in the install's bucket, as deploy/aws/guard.sh uploaded it.
+  Regions:
+    Type: String
+    Default: ""
+    AllowedPattern: "([a-z]{2}(-[a-z]+)+-[0-9])?(,[a-z]{2}(-[a-z]+)+-[0-9])*"
+    Description: Every region the install's functions run in, comma-separated (the home region is always read).
+  Accelerator:
+    Type: String
+    Default: ""
+    AllowedPattern: "([0-9a-f-]{36})?"
+    Description: The install's Global Accelerator's id (the end of its ARN), whose egress counts toward the install's budget. Empty, egress isn't read.
+  EveryMinutes:
+    Type: Number
+    Default: 5
+    MinValue: 2
+    MaxValue: 60
+    Description: How often it runs.
+  ReservedConcurrency:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    Description: Concurrency kept for it, so it runs when apps take the rest. 0 keeps none (an account with little concurrency; AWS leaves 100 unreserved).
+
+Conditions:
+  Reserved: !Not [!Equals [!Ref ReservedConcurrency, 0]]
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /aws/lambda/forkrail-guard
+      RetentionInDays: 30
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: forkrail-guard
+      Description: forkrail's spend guard. Reads metrics and the routing table; may only pause forkrail's app functions.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: guard
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadTheBudgetsAndLedgers
+                Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/routes.json
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/spend/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/guard.json
+              # A missing object reads as 404 rather than 403 (its own state, before its first run).
+              - Sid: ListState
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}
+                Condition:
+                  StringLike:
+                    s3:prefix: ["state/guard.json", "state/spend/*"]
+              - Sid: ItsOwnState
+                Effect: Allow
+                Action: s3:PutObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/guard.json
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/spend/own.json
+              # forkrail's own costs: what the tables keep, the builder's images, the size of
+              # forkrail's own functions (their time and the buckets' sizes come from CloudWatch).
+              - Sid: OwnCosts
+                Effect: Allow
+                Action:
+                  - dynamodb:DescribeTable
+                  - dynamodb:DescribeContinuousBackups
+                Resource:
+                  - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/forkrail-state
+                  - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/forkrail-web
+              - Sid: BuilderImages
+                Effect: Allow
+                Action: ecr:DescribeImages
+                Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/forkrail-builder
+              - Sid: OwnFunctions
+                Effect: Allow
+                Action: lambda:GetFunctionConfiguration
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:forkrail-control
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:forkrail-notify
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:forkrail-guard
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:forkrail-cost-tags
+              # GetMetricStatistics can't be limited to a namespace or a resource.
+              - Sid: Metrics
+                Effect: Allow
+                Action: cloudwatch:GetMetricStatistics
+                Resource: "*"
+              # Yesterday's bill, once a day (Cost Explorer can't be limited to a resource either).
+              - Sid: Bill
+                Effect: Allow
+                Action: ce:GetCostAndUsage
+                Resource: "*"
+              - Sid: PauseAppFunctions
+                Effect: Allow
+                Action:
+                  - lambda:GetFunctionConcurrency
+                  - lambda:PutFunctionConcurrency
+                Resource: !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-app-*
+              - Sid: TellControlAndTheTeam
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource:
+                  - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:forkrail-spend
+                  - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:forkrail-events
+              - Sid: Logs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub ${LogGroup.Arn}:*
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: forkrail-guard
+      Description: forkrail's spend guard (crates/guard). Runs on a schedule; pauses what AWS's own numbers show over budget.
+      Runtime: provided.al2023
+      Architectures: [arm64]
+      Handler: bootstrap
+      MemorySize: 256
+      Timeout: 120
+      Role: !GetAtt Role.Arn
+      ReservedConcurrentExecutions: !If [Reserved, !Ref ReservedConcurrency, !Ref AWS::NoValue]
+      Code:
+        S3Bucket: !Sub forkrail-artifacts-${AWS::AccountId}
+        S3Key: !Ref CodeKey
+      Environment:
+        Variables:
+          FORKRAIL_STATE_BUCKET: !Sub forkrail-artifacts-${AWS::AccountId}
+          FORKRAIL_HOME_REGION: !Ref AWS::Region
+          FORKRAIL_REGIONS: !Ref Regions
+          FORKRAIL_ACCELERATOR: !Ref Accelerator
+          FORKRAIL_SPEND_QUEUE: !Sub https://sqs.${AWS::Region}.amazonaws.com/${AWS::AccountId}/forkrail-spend
+          FORKRAIL_EVENTS_QUEUE: !Sub https://sqs.${AWS::Region}.amazonaws.com/${AWS::AccountId}/forkrail-events
+      LoggingConfig:
+        LogGroup: !Ref LogGroup
+        LogFormat: Text
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  Schedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: forkrail-guard
+      Description: Runs forkrail-guard.
+      ScheduleExpression: !Sub rate(${EveryMinutes} minutes)
+      State: ENABLED
+      Targets:
+        - Id: guard
+          Arn: !GetAtt Function.Arn
+
+  ScheduleInvokes:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt Schedule.Arn
+
+Outputs:
+  Function:
+    Value: !Ref Function

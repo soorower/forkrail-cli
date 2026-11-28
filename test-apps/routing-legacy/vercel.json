@@ -1,0 +1,117 @@
+{
+  "framework": null,
+  "routes": [
+    {
+      "src": "/legacy-old/(.*)",
+      "status": 308,
+      "headers": {
+        "Location": "/about?from=$1"
+      }
+    },
+    {
+      "src": "/(.*)",
+      "headers": {
+        "x-all": "1"
+      },
+      "continue": true
+    },
+    {
+      "src": "/items/(.*)",
+      "headers": {
+        "x-own": "route",
+        "x-item": "$1"
+      },
+      "continue": true
+    },
+    {
+      "src": "/alias/(.*)",
+      "dest": "/$1",
+      "continue": true
+    },
+    {
+      "src": "/Mixed-Case",
+      "dest": "/about.html"
+    },
+    {
+      "src": "/only-post",
+      "methods": [
+        "POST"
+      ],
+      "dest": "/api/main?m=post"
+    },
+    {
+      "src": "/needs-header",
+      "has": [
+        {
+          "type": "header",
+          "key": "x-k"
+        }
+      ],
+      "dest": "/about.html"
+    },
+    {
+      "src": "/teapot",
+      "status": 418,
+      "dest": "/about.html"
+    },
+    {
+      "src": "/ext/(.*)",
+      "dest": "https://httpbin.org/anything/$1"
+    },
+    {
+      "src": "/about",
+      "headers": {
+        "x-about": "1"
+      },
+      "continue": true
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/items/(?<id>[^/]+)",
+      "dest": "/api/main?id=$id"
+    },
+    {
+      "src": "/check/(.*)",
+      "dest": "/$1.html",
+      "check": true
+    },
+    {
+      "src": "/gone/(.*)",
+      "dest": "/$1.html",
+      "status": 410,
+      "check": true
+    },
+    {
+      "src": "/about",
+      "dest": "/about.html"
+    },
+    {
+      "handle": "hit"
+    },
+    {
+      "src": "/(.*)\\.html",
+      "headers": {
+        "x-hit": "1"
+      },
+      "continue": true
+    },
+    {
+      "handle": "miss"
+    },
+    {
+      "src": "/m/(.*)",
+      "dest": "/$1.html",
+      "check": true
+    },
+    {
+      "handle": "error"
+    },
+    {
+      "src": "/.*",
+      "dest": "/404.html",
+      "status": 404
+    }
+  ]
+}

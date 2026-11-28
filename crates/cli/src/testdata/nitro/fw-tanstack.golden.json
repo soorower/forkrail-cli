@@ -1,0 +1,143 @@
+{
+  "crons": [],
+  "decisions": {
+    "/": {
+      "captures": [
+        [
+          "1",
+          ""
+        ]
+      ],
+      "function": "/__server",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/__server": {
+      "captures": null,
+      "function": "/__server",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/api/hello": {
+      "captures": [
+        [
+          "1",
+          "api/hello"
+        ]
+      ],
+      "function": "/__server",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/assets/nope.js": {
+      "captures": null,
+      "function": null,
+      "headers": [
+        [
+          "cache-control",
+          "no-store"
+        ]
+      ],
+      "outcome": "Error",
+      "status": 404
+    },
+    "/missing": {
+      "captures": [
+        [
+          "1",
+          "missing"
+        ]
+      ],
+      "function": "/__server",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/ssr?a=1": {
+      "captures": [
+        [
+          "1",
+          "ssr"
+        ]
+      ],
+      "function": "/__server",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    }
+  },
+  "dispatcher": [
+    "{ name: \"/__server\", paths: [\"/__server\",\"/__server/\"], helpers: false"
+  ],
+  "floor": null,
+  "framework": null,
+  "functions": [
+    "/__server"
+  ],
+  "images": null,
+  "max_duration": {},
+  "paths": [
+    "/__server",
+    "/__server/"
+  ],
+  "prerenders": {},
+  "routes": [
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "TanStack Start's routes[0]",
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ],
+      "src": "^/assets(?:/(?<_0>(?:[\\s\\S]*[^/])?/*?))??/?$"
+    },
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "TanStack Start's routes[1]",
+      "has": [
+        {
+          "key": "Sec-Fetch-Dest",
+          "type": "header",
+          "value": "document"
+        }
+      ],
+      "headers": [
+        {
+          "key": "Set-Cookie",
+          "value": "__vdpl=f8test; Path=/; SameSite=Lax; Secure; HttpOnly"
+        }
+      ],
+      "src": "^/.*$"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "caseSensitive": false,
+      "from": "TanStack Start's routes[3]",
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "no-store"
+        }
+      ],
+      "src": "^/assets/(.*)$",
+      "status": 404
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/__server",
+      "from": "TanStack Start's routes[4]",
+      "src": "^/(.*)$"
+    }
+  ],
+  "schedules": null,
+  "warnings": []
+}

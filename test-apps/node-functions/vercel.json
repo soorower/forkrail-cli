@@ -1,0 +1,8 @@
+{
+  "crons": [{ "path": "/api/cron", "schedule": "*/5 * * * *" }],
+  "rewrites": [{ "source": "/hello/:name", "destination": "/api/hello?name=:name" }],
+  "functions": {
+    "api/users/**": { "memory": 512 },
+    "api/cron.ts": { "maxDuration": 30 }
+  }
+}

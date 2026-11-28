@@ -1,0 +1,61 @@
+<!-- forkrail's settings for ClickHouse on a t4g.medium (2 vCPU, 4 GiB), installed as
+     /etc/clickhouse-server/config.d/forkrail.xml by deploy/aws/analytics.sh. The box only stores
+     and answers queries: the routers' Vector sends batches every 2 seconds. -->
+<clickhouse>
+    <!-- Plain HTTP for the router in this VPC (port 8123), HTTPS with the box's own certificate
+         for the routers in other regions and the CLI (8443). The security group decides who
+         reaches which. The native protocol (9000) stays for clickhouse-client on the box. -->
+    <listen_host>0.0.0.0</listen_host>
+    <https_port>8443</https_port>
+    <openSSL>
+        <server>
+            <certificateFile>/etc/clickhouse-server/tls/cert.pem</certificateFile>
+            <privateKeyFile>/etc/clickhouse-server/tls/key.pem</privateKeyFile>
+            <verificationMode>none</verificationMode>
+            <loadDefaultCAFile>false</loadDefaultCAFile>
+            <cacheSessions>true</cacheSessions>
+            <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
+            <preferServerCiphers>true</preferServerCiphers>
+        </server>
+    </openSSL>
+    <mysql_port remove="1"/>
+    <postgresql_port remove="1"/>
+    <interserver_http_port remove="1"/>
+
+    <!-- Memory: leave a quarter of the box to the OS and the page cache. Queries get less, per
+         user, in users.d/forkrail.xml. -->
+    <max_server_memory_usage_to_ram_ratio>0.75</max_server_memory_usage_to_ram_ratio>
+    <mark_cache_size>268435456</mark_cache_size>
+    <index_mark_cache_size>67108864</index_mark_cache_size>
+    <uncompressed_cache_size>0</uncompressed_cache_size>
+    <max_concurrent_queries>50</max_concurrent_queries>
+
+    <!-- System tables that write all the time. query_log stays, for 14 days, to see what each
+         query costs. -->
+    <trace_log remove="1"/>
+    <query_thread_log remove="1"/>
+    <query_views_log remove="1"/>
+    <text_log remove="1"/>
+    <metric_log remove="1"/>
+    <latency_log remove="1"/>
+    <error_log remove="1"/>
+    <query_metric_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <part_log remove="1"/>
+    <processors_profile_log remove="1"/>
+    <opentelemetry_span_log remove="1"/>
+    <session_log remove="1"/>
+    <blob_storage_log remove="1"/>
+    <query_log replace="1">
+        <database>system</database>
+        <table>query_log</table>
+        <engine>ENGINE = MergeTree PARTITION BY event_date ORDER BY event_time TTL event_date + INTERVAL 14 DAY</engine>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </query_log>
+
+    <logger>
+        <level>warning</level>
+        <size>100M</size>
+        <count>3</count>
+    </logger>
+</clickhouse>

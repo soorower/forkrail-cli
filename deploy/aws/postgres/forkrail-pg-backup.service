@@ -1,0 +1,8 @@
+[Unit]
+Description=forkrail: back up Postgres to S3
+After=postgresql.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/forkrail-pg-backup

@@ -1,0 +1,29 @@
+{
+  "providerId": "forkrail.com",
+  "providerName": "forkrail",
+  "serviceId": "custom-domain",
+  "serviceName": "Custom domain",
+  "version": 1,
+  "description": "Points a domain at a project hosted on forkrail.com: a CNAME to <project>.forkrail.com, and optionally the _acme-challenge CNAME that lets forkrail get the domain's certificate before traffic moves (required for wildcards). Applied with host for a subdomain, or without host at the root on DNS providers that flatten a root CNAME.",
+  "variableDescription": "%project%: the project's name, one DNS label (my-app points the domain at my-app.forkrail.com). %acme%: 16 lowercase hex characters naming the domain's challenge record, the first 8 bytes of sha256('forkrail-acme:' + the domain).",
+  "syncBlock": false,
+  "syncPubKeyDomain": "forkrail.com",
+  "syncRedirectDomain": "forkrail.com",
+  "hostRequired": true,
+  "records": [
+    {
+      "groupId": "serve",
+      "type": "CNAME",
+      "host": "@",
+      "pointsTo": "%project%.forkrail.com",
+      "ttl": 300
+    },
+    {
+      "groupId": "certificate",
+      "type": "CNAME",
+      "host": "_acme-challenge",
+      "pointsTo": "%acme%._acme.forkrail.com",
+      "ttl": 300
+    }
+  ]
+}

@@ -1,0 +1,343 @@
+{
+ "note": "Nitro's Build Output for test-apps/fw-nuxt as forkrail's build left it (2026-11-16, skew protection on, deployment id f8test), in short: config.json, every function (a link, or its .vc-config.json) and prerender config, the static files' paths; and the project's vercel.json. The import of it is checked against fw-nuxt.golden.json.",
+ "framework": "Nuxt",
+ "vercel_json": {
+  "crons": [
+   {
+    "path": "/api/cron",
+    "schedule": "0 5 * * *"
+   }
+  ],
+  "headers": [
+   {
+    "source": "/api/(.*)",
+    "headers": [
+     {
+      "key": "x-from-vercel-json",
+      "value": "1"
+     }
+    ]
+   }
+  ]
+ },
+ "config": {
+  "version": 3,
+  "framework": {
+   "name": "nuxt",
+   "version": "4.6.4"
+  },
+  "overrides": {},
+  "routes": [
+   {
+    "src": "/_nuxt/(.*)",
+    "headers": {
+     "cache-control": "public, max-age=31536000, immutable"
+    },
+    "continue": true
+   },
+   {
+    "src": "/api/(.*)",
+    "headers": {
+     "x-rule-api": "1"
+    },
+    "continue": true
+   },
+   {
+    "src": "/headers",
+    "headers": {
+     "x-rule": "headers",
+     "cache-control": "public, max-age=0, s-maxage=60"
+    },
+    "continue": true
+   },
+   {
+    "src": "/_nuxt/builds/(.*)",
+    "headers": {
+     "cache-control": "public, max-age=1, immutable"
+    },
+    "continue": true
+   },
+   {
+    "src": "/_nuxt/builds/meta/(.*)",
+    "headers": {
+     "cache-control": "public, max-age=31536000, immutable"
+    },
+    "continue": true
+   },
+   {
+    "src": "/old",
+    "status": 307,
+    "headers": {
+     "Location": "/ssr"
+    }
+   },
+   {
+    "src": "/legacy/(.*)",
+    "status": 301,
+    "headers": {
+     "Location": "/isr/$1"
+    }
+   },
+   {
+    "src": "/.*",
+    "has": [
+     {
+      "type": "header",
+      "key": "Sec-Fetch-Dest",
+      "value": "document"
+     }
+    ],
+    "headers": {
+     "Set-Cookie": "__vdpl=f8test; Path=/; SameSite=Lax; Secure; HttpOnly"
+    },
+    "continue": true
+   },
+   {
+    "src": "/_nuxt/builds/meta(.*)",
+    "headers": {
+     "cache-control": "public,max-age=31536000,immutable"
+    },
+    "continue": true
+   },
+   {
+    "src": "/_nuxt/builds(.*)",
+    "headers": {
+     "cache-control": "public,max-age=31536000,immutable"
+    },
+    "continue": true
+   },
+   {
+    "src": "/_nuxt(.*)",
+    "headers": {
+     "cache-control": "public,max-age=31536000,immutable"
+    },
+    "continue": true
+   },
+   {
+    "handle": "filesystem"
+   },
+   {
+    "src": "(?<__isr_route>/isr-forever/_payload.json)",
+    "dest": "/isr-forever/_payload.json-isr?__isr_route=$__isr_route"
+   },
+   {
+    "src": "(?<__isr_route>/swr/_payload.json)",
+    "dest": "/swr/_payload.json-isr?__isr_route=$__isr_route"
+   },
+   {
+    "src": "(?<__isr_route>/__nuxt_error)",
+    "dest": "/__fallback"
+   },
+   {
+    "src": "(?<__isr_route>/isr/(?:.*))",
+    "dest": "/isr/[...]-isr?__isr_route=$__isr_route"
+   },
+   {
+    "src": "(?<__isr_route>/isr-forever)",
+    "dest": "/isr-forever-isr?__isr_route=$__isr_route"
+   },
+   {
+    "src": "(?<__isr_route>/swr)",
+    "dest": "/swr-isr?__isr_route=$__isr_route"
+   },
+   {
+    "src": "/swr",
+    "dest": "/swr"
+   },
+   {
+    "src": "/ssr",
+    "dest": "/ssr"
+   },
+   {
+    "src": "/spa",
+    "dest": "/spa"
+   },
+   {
+    "src": "/old",
+    "dest": "/old"
+   },
+   {
+    "src": "/isr-forever",
+    "dest": "/isr-forever"
+   },
+   {
+    "src": "/image",
+    "dest": "/image"
+   },
+   {
+    "src": "/headers",
+    "dest": "/headers"
+   },
+   {
+    "src": "/api/hello",
+    "dest": "/api/hello"
+   },
+   {
+    "src": "/api/env",
+    "dest": "/api/env"
+   },
+   {
+    "src": "/api/cron",
+    "dest": "/api/cron"
+   },
+   {
+    "src": "/__nuxt_error",
+    "dest": "/__nuxt_error"
+   },
+   {
+    "src": "/",
+    "dest": "/index"
+   },
+   {
+    "src": "/legacy/(?<pathMatch>[^/]+)",
+    "dest": "/legacy/[pathMatch]"
+   },
+   {
+    "src": "/isr/(?<slug>[^/]+)",
+    "dest": "/isr/[slug]"
+   },
+   {
+    "src": "/__nuxt_island/(?:.*)",
+    "dest": "/__nuxt_island/[...]"
+   },
+   {
+    "src": "/(.*)",
+    "dest": "/__fallback"
+   }
+  ],
+  "images": {
+   "domains": [],
+   "minimumCacheTTL": 300,
+   "sizes": [
+    640,
+    768,
+    1024,
+    1280,
+    1536
+   ],
+   "formats": [
+    "image/webp",
+    "image/avif"
+   ]
+  }
+ },
+ "functions": {
+  "/__fallback": {
+   "vc": {
+    "runtime": "nodejs26.x",
+    "handler": "index.mjs",
+    "launcherType": "Nodejs",
+    "shouldAddHelpers": false,
+    "supportsResponseStreaming": true
+   }
+  },
+  "/__nuxt_error": {
+   "link": "/__fallback"
+  },
+  "/__nuxt_island/[...]": {
+   "link": "/__fallback"
+  },
+  "/api/cron": {
+   "link": "/__fallback"
+  },
+  "/api/env": {
+   "link": "/__fallback"
+  },
+  "/api/hello": {
+   "link": "/__fallback"
+  },
+  "/headers": {
+   "link": "/__fallback"
+  },
+  "/image": {
+   "link": "/__fallback"
+  },
+  "/index": {
+   "link": "/__fallback"
+  },
+  "/isr-forever-isr": {
+   "link": "/__fallback"
+  },
+  "/isr-forever/_payload.json-isr": {
+   "link": "/__fallback"
+  },
+  "/isr/[...]-isr": {
+   "link": "/__fallback"
+  },
+  "/legacy/[pathMatch]": {
+   "link": "/__fallback"
+  },
+  "/old": {
+   "link": "/__fallback"
+  },
+  "/spa": {
+   "link": "/__fallback"
+  },
+  "/ssr": {
+   "link": "/__fallback"
+  },
+  "/swr-isr": {
+   "link": "/__fallback"
+  },
+  "/swr/_payload.json-isr": {
+   "link": "/__fallback"
+  }
+ },
+ "prerenders": {
+  "/isr-forever-isr": {
+   "expiration": false
+  },
+  "/isr-forever/_payload.json-isr": {
+   "expiration": false
+  },
+  "/isr/[...]-isr": {
+   "expiration": 60
+  },
+  "/swr-isr": {
+   "expiration": false
+  },
+  "/swr/_payload.json-isr": {
+   "expiration": false
+  }
+ },
+ "static": [
+  "/_nuxt/-N5w0IPm.js",
+  "/_nuxt/BaU9GGM1.js",
+  "/_nuxt/Bd-_hIk_.js",
+  "/_nuxt/BrUPf2hC.js",
+  "/_nuxt/BtnWdBZc.js",
+  "/_nuxt/BtvcYivx.js",
+  "/_nuxt/C5pO7Cf6.js",
+  "/_nuxt/CSy4N9qn.js",
+  "/_nuxt/CWolQTrb.js",
+  "/_nuxt/DZhbwm-l.js",
+  "/_nuxt/KncuvYbF.js",
+  "/_nuxt/builds/latest.json",
+  "/_nuxt/builds/meta/a5b18115-3593-49f0-afa0-7c0d5d2ccc9c.json",
+  "/_nuxt/qzdPFHfA.js",
+  "/favicon.ico",
+  "/photo.png",
+  "/prerendered/_payload.json",
+  "/prerendered/index.html",
+  "/robots.txt"
+ ],
+ "requests": [
+  "/",
+  "/index",
+  "/ssr?a=1",
+  "/old",
+  "/legacy/a/b",
+  "/headers",
+  "/api/hello",
+  "/isr/one",
+  "/isr/one/_payload.json",
+  "/isr-forever",
+  "/swr",
+  "/__nuxt_error",
+  "/__nuxt_island/x",
+  "/prerendered",
+  "/_nuxt/builds/latest.json",
+  "/missing",
+  "/__fallback"
+ ]
+}

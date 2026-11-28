@@ -1,0 +1,9 @@
+export const metadata = { title: 'forkrail next-app' }
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  )
+}

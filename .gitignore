@@ -1,0 +1,34 @@
+target/
+*.zip
+/logs/
+__pycache__/
+*.pyc
+.DS_Store
+.vercel
+
+# Maintainers' local notes, research data and one-off tooling, kept out of the repository.
+/CLAUDE.md
+/docs/fluid-compute-design.md
+/docs/front-door.md
+/docs/history.md
+/docs/next-spike.md
+/docs/domain-connect.md
+/docs/c16-frameworks.md
+/test-apps/fw-*/
+/test-apps/boa/
+/tools/c16/
+/tools/image-check.py
+/test-apps/images/
+/docs/data/
+/deploy/aws/latency-test.sh
+/deploy/aws/latency/
+/tools/latency/
+/test-apps/vercel-latency/
+
+# The dashboard (github.com/soorower/forkrail-dashboard), when checked out inside this one.
+/web/
+
+# Editor and agent settings.
+/.claude/
+/.idea/
+/.vscode/

@@ -1,0 +1,293 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# The builder, forkrail-builder: the Lambda function remote builds run in (crates/builder,
+# crates/cli/src/builder.rs and remote.rs), from the image deploy/aws/builder.sh pushes to the
+# registry stack's repository. Apply it after the registry and the control function:
+#
+#   deploy/aws/builder.sh release
+#
+# A build is one asynchronous invocation, never retried by Lambda. Lambda reports how each ended,
+# success or failure, to the topic forkrail-builds, which the control function listens on to publish
+# the build or record why there's none. One that ran out of the builder's memory is sent once to the
+# large builder, forkrail-builder-large (the same image and role, `LargeMemorySize`), and its
+# project's builds start there from then on (crates/cli/src/remote.rs `again_large`); one that runs
+# out there too fails.
+#
+# The builder runs the project's own code (npm, pip, its framework's build), so its role can do
+# nothing in the install: everything a build reads and writes goes through URLs presigned for that
+# build alone. Its one right is publishing to the builds topic, which Lambda needs to report the
+# end; the control function checks every notice against the deployment's record, so a build can
+# end only itself. It writes no CloudWatch logs: its lines go to the deployment's build log.
+Description: forkrail's builder, the Lambda function that runs remote builds, and the topic it reports their ends to.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  ImageUri:
+    Type: String
+    AllowedPattern: "[0-9]{12}\\.dkr\\.ecr\\.[a-z0-9-]+\\.amazonaws\\.com/forkrail-builder@sha256:[0-9a-f]{64}"
+    Description: The builder's image by digest, as deploy/aws/builder.sh pushed it.
+  MemorySize:
+    Type: Number
+    Default: 4096
+    MinValue: 128
+    MaxValue: 10240
+    Description: >-
+      Each build's memory in MB; CPU is a share of it, a whole vCPU per 1,769 MB. Less only where
+      the account allows less (new accounts start low), when bigger builds run out of it.
+  LargeMemorySize:
+    Type: Number
+    Default: 8192
+    MinValue: 0
+    MaxValue: 10240
+    Description: >-
+      The large builder's memory in MB, for a build that ran out of the builder's (and its project's
+      builds after it). 8,192 MB is what Vercel's standard build machine has; 0 makes no large
+      builder, and such a build fails.
+  Builds:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 100
+    Description: >-
+      How many builds may run at once, reserved out of the account's Lambda concurrency (which every
+      other function then has that much less of); further builds wait for one to end. 0 reserves
+      none and sets no limit.
+  ControlFunction:
+    Type: String
+    Default: forkrail-control
+    AllowedPattern: "[A-Za-z0-9_-]{1,64}"
+    Description: The control function, which publishes what's built.
+
+Conditions:
+  Capped: !Not [!Equals [!Ref Builds, 0]]
+  Large: !Not [!Equals [!Ref LargeMemorySize, 0]]
+
+Resources:
+  # Lambda's reports of each invocation's end. Read only by the control function (TopicPolicy).
+  Topic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: forkrail-builds
+      KmsMasterKeyId: alias/aws/sns
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Lambda's asynchronous-invocation destination for the builder, so a build's end reaches the control function even when the builder crashed or ran out of time.
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: forkrail-builder
+      Description: forkrail's builder. No rights over the install; it only reports its invocations' ends.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: builder
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Lambda sends the invocation's end to the topic with this role.
+              - Sid: ReportEnds
+                Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref Topic
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: The project's code runs with whatever this role has, so it has nothing but what Lambda needs to report a build's end.
+        must: Never S3, Lambda, SSM, KMS or CloudWatch Logs rights; builds get presigned URLs instead.
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: forkrail-builder
+      Description: forkrail's builder (crates/builder). Builds one deployment per invocation.
+      PackageType: Image
+      Code:
+        ImageUri: !Ref ImageUri
+      Architectures: [arm64]
+      MemorySize: !Ref MemorySize
+      # Lambda's most; a build stops a minute before, to keep its log and say why.
+      Timeout: 900
+      EphemeralStorage:
+        Size: 10240
+      ReservedConcurrentExecutions: !If [Capped, !Ref Builds, !Ref AWS::NoValue]
+      Role: !GetAtt Role.Arn
+
+  Ends:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref Function
+      Qualifier: $LATEST
+      # A build that failed stays failed, as on Vercel; one waiting 30 minutes for a free builder
+      # is given up on. (One out of memory is sent again by the control function, on the large builder.)
+      MaximumRetryAttempts: 0
+      MaximumEventAgeInSeconds: 1800
+      DestinationConfig:
+        OnSuccess:
+          Destination: !Ref Topic
+        OnFailure:
+          Destination: !Ref Topic
+
+  # The same builder with more memory: a build that ran out of Function's is sent here once, and its
+  # project's builds after it. Nothing is kept running, so it costs only its builds.
+  LargeFunction:
+    Type: AWS::Lambda::Function
+    Condition: Large
+    Properties:
+      FunctionName: forkrail-builder-large
+      Description: forkrail's large builder (crates/builder), for builds that ran out of forkrail-builder's memory.
+      PackageType: Image
+      Code:
+        ImageUri: !Ref ImageUri
+      Architectures: [arm64]
+      MemorySize: !Ref LargeMemorySize
+      Timeout: 900
+      EphemeralStorage:
+        Size: 10240
+      ReservedConcurrentExecutions: !If [Capped, !Ref Builds, !Ref AWS::NoValue]
+      Role: !GetAtt Role.Arn
+
+  LargeEnds:
+    Type: AWS::Lambda::EventInvokeConfig
+    Condition: Large
+    Properties:
+      FunctionName: !Ref LargeFunction
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 0
+      MaximumEventAgeInSeconds: 1800
+      DestinationConfig:
+        OnSuccess:
+          Destination: !Ref Topic
+        OnFailure:
+          Destination: !Ref Topic
+
+  # The topic's own policy, in place of SNS's default one (which lets any principal in the account
+  # publish, subscribe and change the topic: app code with the worker role's keys could have read
+  # every build's presigned URLs). Within the account each role's own IAM policy grants what it
+  # does: Lambda publishes the builder's ends as the builder's role (`ReportEnds`), SNS delivers to
+  # the control function by its Lambda permission, and administrators have everything. So this only
+  # refuses the roles that run code forkrail didn't write anything else, whatever IAM says later.
+  TopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref Topic
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Apps (forkrail-worker) and the dashboard's page previews (forkrail-screenshot): nothing.
+          # (SNS refuses the `sns:*` wildcard in a topic policy: every topic action is named.)
+          - Sid: NeverAppsOrPreviews
+            Effect: Deny
+            Principal: "*"
+            Action:
+              - sns:Publish
+              - sns:Subscribe
+              - sns:GetTopicAttributes
+              - sns:SetTopicAttributes
+              - sns:AddPermission
+              - sns:RemovePermission
+              - sns:DeleteTopic
+              - sns:ListSubscriptionsByTopic
+              - sns:GetDataProtectionPolicy
+              - sns:PutDataProtectionPolicy
+              - sns:TagResource
+              - sns:UntagResource
+              - sns:ListTagsForResource
+            Resource: !Ref Topic
+            Condition:
+              ArnLike:
+                aws:PrincipalArn:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-worker
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-screenshot
+          # Builds (forkrail-builder): only Lambda's report of their end, never a subscription.
+          # (SNS refuses `NotAction` here: "everything but Publish" names other services' actions.)
+          - Sid: BuildsOnlyReport
+            Effect: Deny
+            Principal: "*"
+            Action:
+              - sns:Subscribe
+              - sns:GetTopicAttributes
+              - sns:SetTopicAttributes
+              - sns:AddPermission
+              - sns:RemovePermission
+              - sns:DeleteTopic
+              - sns:ListSubscriptionsByTopic
+              - sns:GetDataProtectionPolicy
+              - sns:PutDataProtectionPolicy
+              - sns:TagResource
+              - sns:UntagResource
+              - sns:ListTagsForResource
+            Resource: !Ref Topic
+            Condition:
+              ArnLike:
+                aws:PrincipalArn: !GetAtt Role.Arn
+          # Every other forkrail-* role (projects' own roles are named so, and run their apps'
+          # code with whatever rights they were given): no subscription, no change to the topic,
+          # and no notice; only the builder's ends are published. Administrators, who make the
+          # control function's subscription with this stack, aren't forkrail-* roles.
+          - Sid: NoForkrailRoleListens
+            Effect: Deny
+            Principal: "*"
+            Action:
+              - sns:Subscribe
+              - sns:GetTopicAttributes
+              - sns:SetTopicAttributes
+              - sns:AddPermission
+              - sns:RemovePermission
+              - sns:DeleteTopic
+              - sns:ListSubscriptionsByTopic
+              - sns:GetDataProtectionPolicy
+              - sns:PutDataProtectionPolicy
+              - sns:TagResource
+              - sns:UntagResource
+              - sns:ListTagsForResource
+            Resource: !Ref Topic
+            Condition:
+              ArnLike:
+                aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-*
+          - Sid: OnlyTheBuilderPublishes
+            Effect: Deny
+            Principal: "*"
+            Action: sns:Publish
+            Resource: !Ref Topic
+            Condition:
+              ArnLike:
+                aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-*
+              ArnNotEquals:
+                aws:PrincipalArn: !GetAtt Role.Arn
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: A notice carries a build's presigned URLs (its source, its order with env values, its cache to write); only the control function may read them.
+        must: Keep a policy on the topic (SNS's default lets the whole account subscribe), keep every forkrail-* role from subscribing or changing it (projects' own roles are forkrail-* and run apps' code), and let only the builder's role publish among them.
+
+  ControlListens:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref Topic
+      Protocol: lambda
+      Endpoint: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ControlFunction}
+
+  # The topic may invoke the control function; its notices are checked against deployments' records.
+  TopicInvokesControl:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ControlFunction
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref Topic
+      SourceAccount: !Ref AWS::AccountId
+
+Outputs:
+  FunctionArn:
+    Value: !GetAtt Function.Arn
+  TopicArn:
+    Value: !Ref Topic

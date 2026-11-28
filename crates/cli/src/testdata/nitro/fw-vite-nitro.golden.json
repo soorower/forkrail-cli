@@ -1,0 +1,469 @@
+{
+  "crons": [
+    {
+      "path": "/_vercel/cron",
+      "schedule": "0 * * * *"
+    }
+  ],
+  "decisions": {
+    "/": {
+      "captures": [
+        [
+          "1",
+          ""
+        ]
+      ],
+      "function": "/__server",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/_vercel/cron": {
+      "captures": null,
+      "function": "/_vercel/cron",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/api/heavy": {
+      "captures": null,
+      "function": "/api/heavy",
+      "headers": [
+        [
+          "x-rule-api",
+          "1"
+        ]
+      ],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/api/hello": {
+      "captures": null,
+      "function": "/api/hello",
+      "headers": [
+        [
+          "x-rule-api",
+          "1"
+        ]
+      ],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/assets/nope.js": {
+      "captures": null,
+      "function": null,
+      "headers": [
+        [
+          "cache-control",
+          "no-store"
+        ]
+      ],
+      "outcome": "Error",
+      "status": 404
+    },
+    "/headers": {
+      "captures": null,
+      "function": "/headers",
+      "headers": [
+        [
+          "cache-control",
+          "public, max-age=0, s-maxage=60"
+        ],
+        [
+          "x-rule",
+          "headers"
+        ]
+      ],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/isr": {
+      "captures": [
+        [
+          "1",
+          "/isr"
+        ],
+        [
+          "__isr_route",
+          "/isr"
+        ]
+      ],
+      "function": "/isr-isr",
+      "headers": [],
+      "outcome": "Function { query: Some(\"__isr_route=%2Fisr\") }",
+      "status": null
+    },
+    "/isr-forever": {
+      "captures": [
+        [
+          "1",
+          "/isr-forever"
+        ],
+        [
+          "__isr_route",
+          "/isr-forever"
+        ]
+      ],
+      "function": "/isr-forever-isr",
+      "headers": [],
+      "outcome": "Function { query: Some(\"__isr_route=%2Fisr-forever\") }",
+      "status": null
+    },
+    "/isr-query?v=1&other=2": {
+      "captures": [
+        [
+          "1",
+          "/isr-query"
+        ],
+        [
+          "__isr_route",
+          "/isr-query"
+        ]
+      ],
+      "function": "/isr-query-isr",
+      "headers": [],
+      "outcome": "Function { query: Some(\"v=1&other=2&__isr_route=%2Fisr-query\") }",
+      "status": null
+    },
+    "/isr/one": {
+      "captures": [
+        [
+          "1",
+          "/isr/one"
+        ],
+        [
+          "__isr_route",
+          "/isr/one"
+        ],
+        [
+          "2",
+          "one"
+        ],
+        [
+          "_0",
+          "one"
+        ]
+      ],
+      "function": "/isr/[...]-isr",
+      "headers": [],
+      "outcome": "Function { query: Some(\"__isr_route=%2Fisr%2Fone\") }",
+      "status": null
+    },
+    "/legacy/a/b?x=1": {
+      "captures": null,
+      "function": null,
+      "headers": [],
+      "outcome": "Redirect { location: \"/isr/a/b?x=1\" }",
+      "status": 301
+    },
+    "/legacy/keep": {
+      "captures": [
+        [
+          "1",
+          "legacy/keep"
+        ]
+      ],
+      "function": "/__server",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/missing": {
+      "captures": [
+        [
+          "1",
+          "missing"
+        ]
+      ],
+      "function": "/__server",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/old": {
+      "captures": null,
+      "function": null,
+      "headers": [],
+      "outcome": "Redirect { location: \"/\" }",
+      "status": 307
+    },
+    "/proxy/a?b=1": {
+      "captures": null,
+      "function": null,
+      "headers": [],
+      "outcome": "External { url: \"https://example.com/a?b=1\" }",
+      "status": null
+    },
+    "/swr": {
+      "captures": null,
+      "function": "/swr",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    }
+  },
+  "dispatcher": [
+    "{ name: \"/__server\", paths: [\"/__server\",\"/__server/\",\"/_vercel/cron\",\"/_vercel/cron/\",\"/api/env\",\"/api/env/\",\"/api/hello\",\"/api/hello/\",\"/headers\",\"/headers/\",\"/isr-forever-isr\",\"/isr-forever-isr/\",\"/isr-isr\",\"/isr-isr/\",\"/isr-query-isr\",\"/isr-query-isr/\",\"/isr/[...]-isr\",\"/isr/[...]-isr/\",\"/swr\",\"/swr/\"], helpers: false",
+    "{ name: \"/api/heavy\", paths: [\"/api/heavy\",\"/api/heavy/\"], helpers: false"
+  ],
+  "floor": {
+    "max_duration_s": 30,
+    "memory_mb": 1024
+  },
+  "framework": null,
+  "functions": [
+    "/__server",
+    "/api/heavy"
+  ],
+  "images": null,
+  "max_duration": {
+    "/api/heavy": 30,
+    "/api/heavy/": 30
+  },
+  "paths": [
+    "/__server",
+    "/__server/",
+    "/_vercel/cron",
+    "/_vercel/cron/",
+    "/api/env",
+    "/api/env/",
+    "/api/heavy",
+    "/api/heavy/",
+    "/api/hello",
+    "/api/hello/",
+    "/headers",
+    "/headers/",
+    "/isr-forever-isr",
+    "/isr-forever-isr/",
+    "/isr-isr",
+    "/isr-isr/",
+    "/isr-query-isr",
+    "/isr-query-isr/",
+    "/isr/[...]-isr",
+    "/isr/[...]-isr/",
+    "/swr",
+    "/swr/"
+  ],
+  "prerenders": {
+    "/isr-forever-isr": {
+      "path": "/isr-forever-isr"
+    },
+    "/isr-forever-isr/": {
+      "path": "/isr-forever-isr"
+    },
+    "/isr-isr": {
+      "expiration": 60,
+      "path": "/isr-isr"
+    },
+    "/isr-isr/": {
+      "expiration": 60,
+      "path": "/isr-isr"
+    },
+    "/isr-query-isr": {
+      "allowQuery": [
+        "v",
+        "__isr_route"
+      ],
+      "expiration": 30,
+      "passQuery": true,
+      "path": "/isr-query-isr"
+    },
+    "/isr-query-isr/": {
+      "allowQuery": [
+        "v",
+        "__isr_route"
+      ],
+      "expiration": 30,
+      "passQuery": true,
+      "path": "/isr-query-isr"
+    },
+    "/isr/[...]-isr": {
+      "expiration": 60,
+      "path": "/isr/[...]-isr"
+    },
+    "/isr/[...]-isr/": {
+      "expiration": 60,
+      "path": "/isr/[...]-isr"
+    }
+  },
+  "routes": [
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "Nitro's routes[0]",
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "public, max-age=0, s-maxage=60"
+        },
+        {
+          "key": "x-rule",
+          "value": "headers"
+        }
+      ],
+      "src": "^/headers/?$"
+    },
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "Nitro's routes[1]",
+      "headers": [
+        {
+          "key": "x-rule-api",
+          "value": "1"
+        }
+      ],
+      "src": "^/api(?:/(?<_0>(?:[\\s\\S]*[^/])?/*?))??/?$"
+    },
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "Nitro's routes[2]",
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ],
+      "src": "^/assets(?:/(?<_0>(?:[\\s\\S]*[^/])?/*?))??/?$"
+    },
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "Nitro's routes[6]",
+      "has": [
+        {
+          "key": "Sec-Fetch-Dest",
+          "type": "header",
+          "value": "document"
+        }
+      ],
+      "headers": [
+        {
+          "key": "Set-Cookie",
+          "value": "__vdpl=f8test; Path=/; SameSite=Lax; Secure; HttpOnly"
+        }
+      ],
+      "src": "^/.*$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "https://example.com/$1",
+      "from": "Nitro's routes[3]",
+      "src": "^/proxy(?:/(?<_0>(?:[\\s\\S]*[^/])?/*?))??/?$"
+    },
+    {
+      "caseSensitive": false,
+      "from": "Nitro's routes[4]",
+      "headers": [
+        {
+          "key": "Location",
+          "value": "/isr/$1"
+        }
+      ],
+      "src": "^(?!(?:/legacy/keep/?)$)/legacy(?:/(?<_0>(?:[\\s\\S]*[^/])?/*?))??/?$",
+      "status": 301
+    },
+    {
+      "caseSensitive": false,
+      "from": "Nitro's routes[5]",
+      "headers": [
+        {
+          "key": "Location",
+          "value": "/"
+        }
+      ],
+      "src": "^/old/?$",
+      "status": 307
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "caseSensitive": false,
+      "from": "Nitro's routes[8]",
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "no-store"
+        }
+      ],
+      "src": "^/assets/(.*)$",
+      "status": 404
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/isr-query-isr?__isr_route=$__isr_route",
+      "from": "Nitro's routes[9]",
+      "src": "^(?<__isr_route>/isr-query/?)$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/isr-forever-isr?__isr_route=$__isr_route",
+      "from": "Nitro's routes[10]",
+      "src": "^(?<__isr_route>/isr-forever/?)$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/isr-isr?__isr_route=$__isr_route",
+      "from": "Nitro's routes[11]",
+      "src": "^(?<__isr_route>/isr/?)$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/isr/[...]-isr?__isr_route=$__isr_route",
+      "from": "Nitro's routes[12]",
+      "src": "^(?<__isr_route>/isr(?:/(?<_0>(?:[\\s\\S]*[^/])?/*?))??/?)$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/api/heavy",
+      "from": "Nitro's routes[13]",
+      "src": "^/api/heavy/?$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/_vercel/cron",
+      "from": "Nitro's routes[14]",
+      "src": "^/_vercel/cron/?$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/swr",
+      "from": "Nitro's routes[15]",
+      "src": "^/swr/?$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/headers",
+      "from": "Nitro's routes[16]",
+      "src": "^/headers/?$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/api/hello",
+      "from": "Nitro's routes[17]",
+      "src": "^/api/hello/?$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/api/heavy",
+      "from": "Nitro's routes[18]",
+      "src": "^/api/heavy/?$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/api/env",
+      "from": "Nitro's routes[19]",
+      "src": "^/api/env/?$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/__server",
+      "from": "Nitro's routes[20]",
+      "src": "^/(.*)$"
+    }
+  ],
+  "schedules": null,
+  "warnings": []
+}

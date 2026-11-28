@@ -1,0 +1,364 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# The table that holds forkrail's project files and deployment records (crates/cli/src/table.rs),
+# its KMS key, and the trail that records every write to it. Apply it in the home region:
+#
+#   deploy/aws/stack.sh apply state AdminPrincipals=arn:aws:iam::<account>:root,<admin role ARN>
+#
+# In the policy's conditions the root's ARN is the root user alone: an administrator signed in
+# through a role (SSO, assumed) or as an IAM user is named by that role's ARN (path and all) or
+# the user's, as `forkrail install` passes the one that runs it.
+#
+# The routers never read it: the routing table, certificates and settings stay in the bucket, so
+# sites keep serving whatever happens to the table. `state/store.json` says whether the table is
+# used yet (`forkrail state mode`).
+#
+# Who can reach the items: the control function (reads and writes them), the dashboard (reads
+# only) and the install's administrators (AdminPrincipals: the identities that run the CLI with
+# AWS credentials). The table's resource policy refuses every data action to anyone else,
+# whatever their own IAM policies allow: the shared worker role apps run as, a project's own role,
+# the routers, the builder, the analytics box, other workloads in the account. It refuses only data
+# actions, so any administrator can still change the policy itself.
+#
+# Nothing is reachable without signed AWS credentials: the table has no address of its own that a
+# request without them gets past. People only ever reach the dashboard, through the accelerator and
+# the routers.
+#
+# Losing the table loses every project's history, so it's retained when the stack is deleted or
+# replaced, it can't be deleted while deletion protection is on, and it can be restored to any
+# second of the last 35 days.
+Description: forkrail's state table (project files and deployment records), its KMS key and the trail of writes to it; only the control function, the dashboard (reading) and the install's administrators can reach the items.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  AdminPrincipals:
+    Type: CommaDelimitedList
+    Description: The IAM principals (ARNs) that administer the install with the CLI's AWS credentials, which may read and write the table and restore it. The root user is arn:aws:iam::<account>:root, which here is the root user alone; a role's ARN (with its path) for administrators who sign in through one.
+  ControlRole:
+    Type: String
+    Default: forkrail-control
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]{1,64}"
+  DashboardRole:
+    Type: String
+    Default: forkrail-dashboard
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]{1,64}"
+  AlertsTopic:
+    Type: String
+    Default: forkrail-alerts
+    Description: The SNS topic forkrail's alarms notify (deploy/aws/test-env.sh monitor makes it).
+
+Resources:
+  StateKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: forkrail state table
+      EnableKeyRotation: true
+      PendingWindowInDays: 30
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          # The account's IAM policies decide who uses the key, as for any key with a default policy.
+          - Sid: AccountUsesIamPolicies
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+            Action: kms:*
+            Resource: "*"
+          # The roles that face the internet or run other people's code never use it, whatever IAM
+          # says later.
+          - Sid: NeverTheseRoles
+            Effect: Deny
+            Principal: "*"
+            Action:
+              - kms:Decrypt
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:ReEncrypt*
+              - kms:CreateGrant
+            Resource: "*"
+            Condition:
+              ArnLike:
+                aws:PrincipalArn:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-router
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-analytics
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-worker
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-builder
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  StateKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/forkrail-state
+      TargetKeyId: !Ref StateKey
+
+  Table:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: forkrail-state
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: kind
+          AttributeType: S
+        - AttributeName: project
+          AttributeType: S
+        - AttributeName: created
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        # Every item of a kind, by key, with its version: what changed since the last look, for
+        # about one read unit.
+        - IndexName: by-kind
+          KeySchema:
+            - AttributeName: kind
+              KeyType: HASH
+            - AttributeName: pk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - v
+        # A project's deployments, newest first when read backwards, in full: a page of them is
+        # one query. Only deployments carry `project` and `created`.
+        - IndexName: by-project
+          KeySchema:
+            - AttributeName: project
+              KeyType: HASH
+            - AttributeName: created
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+        RecoveryPeriodInDays: 35
+      DeletionProtectionEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !GetAtt StateKey.Arn
+      ResourcePolicy:
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            # Nobody but the control function, the dashboard and the administrators reads, writes,
+            # exports, backs up or restores the items.
+            - Sid: OnlyForkrailAndAdministrators
+              Effect: Deny
+              Principal: "*"
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:BatchGetItem
+                - dynamodb:Query
+                - dynamodb:Scan
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:BatchWriteItem
+                - dynamodb:ConditionCheckItem
+                - dynamodb:PartiQLSelect
+                - dynamodb:PartiQLInsert
+                - dynamodb:PartiQLUpdate
+                - dynamodb:PartiQLDelete
+                - dynamodb:ExportTableToPointInTime
+                - dynamodb:RestoreTableToPointInTime
+                - dynamodb:CreateBackup
+              Resource:
+                - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/forkrail-state
+                - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/forkrail-state/index/*
+              Condition:
+                ArnNotLike:
+                  aws:PrincipalArn: !Split
+                    - ","
+                    - !Join
+                      - ","
+                      - - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ControlRole}
+                        - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DashboardRole}
+                        - !Join [",", !Ref AdminPrincipals]
+            # The dashboard only reads.
+            - Sid: DashboardOnlyReads
+              Effect: Deny
+              Principal: "*"
+              Action:
+                - dynamodb:Scan
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:BatchWriteItem
+                - dynamodb:PartiQLSelect
+                - dynamodb:PartiQLInsert
+                - dynamodb:PartiQLUpdate
+                - dynamodb:PartiQLDelete
+                - dynamodb:ExportTableToPointInTime
+                - dynamodb:RestoreTableToPointInTime
+                - dynamodb:CreateBackup
+              Resource:
+                - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/forkrail-state
+                - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/forkrail-state/index/*
+              Condition:
+                ArnLike:
+                  aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DashboardRole}
+            # The control function reads and writes items one at a time, and does nothing else.
+            - Sid: ControlOnlyItems
+              Effect: Deny
+              Principal: "*"
+              Action:
+                - dynamodb:Scan
+                - dynamodb:PartiQLSelect
+                - dynamodb:PartiQLInsert
+                - dynamodb:PartiQLUpdate
+                - dynamodb:PartiQLDelete
+                - dynamodb:ExportTableToPointInTime
+                - dynamodb:RestoreTableToPointInTime
+                - dynamodb:CreateBackup
+              Resource:
+                - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/forkrail-state
+                - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/forkrail-state/index/*
+              Condition:
+                ArnLike:
+                  aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ControlRole}
+      Tags:
+        - Key: project
+          Value: forkrail
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Project files and deployment records, read and written by key with conditional writes, reachable by the control function, the dashboard and the administrators only.
+        must: Keep the resource policy's deny on everyone else and the dashboard's read-only deny. Never give the routers, the builder, the worker role or the analytics box rights here. Keep deletion protection and point-in-time recovery on.
+
+  # Every write to the table, with who made it: a record of tampering, kept a year in its own
+  # bucket. Writes only, so it costs cents a month; reads aren't recorded.
+  AuditBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub forkrail-audit-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: keep-a-year
+            Status: Enabled
+            ExpirationInDays: 365
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  AuditBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AuditBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TrailChecksTheBucket
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt AuditBucket.Arn
+            Condition:
+              StringEquals:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/forkrail-audit
+          - Sid: TrailWrites
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub ${AuditBucket.Arn}/AWSLogs/${AWS::AccountId}/*
+            Condition:
+              StringEquals:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/forkrail-audit
+                s3:x-amz-acl: bucket-owner-full-control
+          - Sid: OnlyOverTls
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt AuditBucket.Arn
+              - !Sub ${AuditBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  AuditTrail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: AuditBucketPolicy
+    Properties:
+      TrailName: forkrail-audit
+      S3BucketName: !Ref AuditBucket
+      IsLogging: true
+      IsMultiRegionTrail: false
+      IncludeGlobalServiceEvents: false
+      EnableLogFileValidation: true
+      # The table's writes only: no management events (the account's own trail, if any, has
+      # those), no reads.
+      AdvancedEventSelectors:
+        - Name: forkrail state writes
+          FieldSelectors:
+            - Field: eventCategory
+              Equals:
+                - Data
+            - Field: resources.type
+              Equals:
+                - AWS::DynamoDB::Table
+            - Field: resources.ARN
+              Equals:
+                - !GetAtt Table.Arn
+            - Field: readOnly
+              Equals:
+                - "false"
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  # DynamoDB failing on its side: the dashboard and every deploy stop.
+  SystemErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: forkrail-state-errors
+      AlarmDescription: DynamoDB answers forkrail-state's requests with errors on its side; deploys and the dashboard fail.
+      Namespace: AWS/DynamoDB
+      MetricName: SystemErrors
+      Dimensions:
+        - Name: TableName
+          Value: !Ref Table
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${AlertsTopic}
+      OKActions:
+        - !Sub arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${AlertsTopic}
+
+Outputs:
+  TableName:
+    Value: !Ref Table
+  TableArn:
+    Value: !GetAtt Table.Arn
+  KeyArn:
+    Value: !GetAtt StateKey.Arn
+  AuditBucket:
+    Value: !Ref AuditBucket

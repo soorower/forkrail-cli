@@ -1,0 +1,32 @@
+---
+// <Analytics /> for Astro: a page view for each page with its route template (`/blog/[slug]`),
+// view transitions included. Props as inject()'s, but `beforeSend`, which can't cross to the page.
+const props = JSON.stringify(Astro.props)
+const params = JSON.stringify(Astro.params)
+---
+
+<forkrail-analytics data-props={props} data-params={params} data-path={Astro.url.pathname}></forkrail-analytics>
+
+<script>
+  import { computeRoute, inject, pageview } from '../index.js'
+
+  // Each page's element counts its page: a page load, or a view transition, which draws a new one.
+  if (!customElements.get('forkrail-analytics')) {
+    customElements.define(
+      'forkrail-analytics',
+      class extends HTMLElement {
+        connectedCallback() {
+          try {
+            const props = JSON.parse(this.dataset.props || '{}')
+            const params = JSON.parse(this.dataset.params || '{}')
+            const path = this.dataset.path || location.pathname
+            inject({ ...props, framework: 'astro', disableAutoTrack: true })
+            pageview({ route: computeRoute(path, params), path })
+          } catch (e) {
+            console.log('[forkrail analytics]', e)
+          }
+        }
+      },
+    )
+  }
+</script>

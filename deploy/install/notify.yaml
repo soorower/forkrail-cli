@@ -1,0 +1,275 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# The install's events and what's done with them: the queue `forkrail-events`, where the control
+# function, the CLI and the routers send what happens (a deployment created, ready, failed,
+# canceled, promoted, rolled back; an attack refused; a certificate that won't renew), and the
+# function `forkrail-notify` (deploy/notify) that takes them off it: it posts each to the team's
+# webhooks that ask for it (signed, retried with backoff for a day) and tells the people it
+# concerns, in the dashboard's bell and by email.
+#
+# Email goes through the install's own Amazon SES (in this account) or the team's own SMTP server,
+# as an owner sets it up in the dashboard; forkrail sends nothing itself. Secrets the dashboard
+# stores for it (the SMTP password, each webhook's signing secret) are encrypted with this stack's
+# key, which the dashboard may encrypt with and only this function may decrypt. Apply it in the
+# home region with the zip deploy/aws/notify.sh built:
+#
+#   deploy/aws/notify.sh release
+#
+# Then the dashboard's table must let the function in (deploy/install/web.yaml, NotifyRole), the
+# control function and the routers may send to the queue (control.yaml; test-env.sh roles), and
+# the routers are told the queue (test-env.sh router-env).
+Description: forkrail's events queue and the function that sends events to the team's webhooks, notifications and email.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  CodeKey:
+    Type: String
+    AllowedPattern: "notify/forkrail-notify-[0-9a-f]{16}\\.zip"
+    Description: The function's zip in the install's bucket, as deploy/aws/notify.sh uploaded it.
+  DashboardRole:
+    Type: String
+    Default: forkrail-dashboard
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]{1,64}"
+    Description: The role the dashboard runs as, which asks the function for test emails and deliveries.
+  DashboardUrl:
+    Type: String
+    Default: ""
+    AllowedPattern: "(https://[A-Za-z0-9.-]+(:[0-9]+)?)?"
+    Description: The dashboard's address (https://app.example.com), for links in notifications and emails. Empty, notifications link only where an event carries the link.
+  WebTable:
+    Type: String
+    Default: forkrail-web
+    Description: The dashboard's table (deploy/install/web.yaml).
+  ReservedConcurrency:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    Description: Concurrency kept for the notifier, so a budget's pause is told when apps take the rest (deploy/aws/reserve.sh sizes it). 0 keeps none.
+
+Conditions:
+  Reserved: !Not [!Equals [!Ref ReservedConcurrency, 0]]
+
+Resources:
+  # Secrets the dashboard stores for the function: encrypted by the dashboard, decrypted only here.
+  NotifyKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: forkrail notifier secrets (the SMTP password, webhook signing secrets) that the dashboard encrypts and only forkrail-notify decrypts.
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AccountUsesIamPolicies
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+            Action: kms:*
+            Resource: "*"
+          # Whatever IAM says: only the function decrypts.
+          - Sid: OnlyTheNotifierDecrypts
+            Effect: Deny
+            Principal: "*"
+            Action: [kms:Decrypt, kms:ReEncryptFrom]
+            Resource: "*"
+            Condition:
+              ArnNotEquals:
+                aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-notify
+      Tags:
+        - Key: project
+          Value: forkrail
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: The SMTP password and webhook secrets are written by the dashboard and read only by the notifier.
+        must: Keep the deny on decryption by anyone but the notifier's role.
+
+  NotifyKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/forkrail-notify
+      TargetKeyId: !Ref NotifyKey
+
+  DeadLetters:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: forkrail-events-dead
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  Queue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: forkrail-events
+      # Six times the function's timeout, as Lambda asks of a queue it reads.
+      VisibilityTimeout: 540
+      MessageRetentionPeriod: 172800
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetters.Arn
+        maxReceiveCount: 5
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  # The notifier signs what comes in with the team's webhook secrets and mails it to members: of
+  # the forkrail-* roles (projects' own roles are named so, and run their apps' code), only those
+  # that tell of events send here. Administrators aren't forkrail-* roles.
+  QueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref Queue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: OnlyForkrailsTellers
+            Effect: Deny
+            Principal: "*"
+            Action: sqs:SendMessage
+            Resource: !GetAtt Queue.Arn
+            Condition:
+              ArnLike:
+                aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-*
+              ArnNotLike:
+                aws:PrincipalArn:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-control
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-router
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-guard
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/forkrail-notify
+
+  Logs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/forkrail-notify
+      RetentionInDays: 30
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: forkrail-notify
+      Description: forkrail's notifier. Its queue, the dashboard's notification items, its key, SES.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: forkrail-notify
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Queue
+                Effect: Allow
+                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes, sqs:ChangeMessageVisibility, sqs:SendMessage]
+                Resource: !GetAtt Queue.Arn
+              # Members, logins and preferences: read. Notifications, webhook deliveries, events
+              # handled: written. The webhooks and email settings: read, and a webhook's last
+              # delivery written. Nothing else of the table (sessions, tokens, logins, the audit).
+              - Sid: ReadPeople
+                Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:BatchGetItem, dynamodb:Query]
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${WebTable}
+                Condition:
+                  ForAllValues:StringLike:
+                    dynamodb:LeadingKeys: [team, "user#*", notify, "event#*"]
+              - Sid: WriteNotifications
+                Effect: Allow
+                Action: [dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem]
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${WebTable}
+                Condition:
+                  ForAllValues:StringLike:
+                    dynamodb:LeadingKeys: ["notif#*", "webhook#*", "event#*", notify]
+              - Sid: WebTableKey
+                Effect: Allow
+                Action: [kms:Decrypt, kms:Encrypt, kms:GenerateDataKey*, kms:DescribeKey]
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    kms:ResourceAliases: alias/forkrail-web
+                  StringEquals:
+                    kms:ViaService: !Sub dynamodb.${AWS::Region}.amazonaws.com
+              - Sid: Secrets
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: !GetAtt NotifyKey.Arn
+                Condition:
+                  StringLike:
+                    kms:EncryptionContext:forkrail: [smtp-password, webhook-secret]
+              # The install's own SES: sending, and looking at or adding the domain it sends from.
+              - Sid: Email
+                Effect: Allow
+                Action: [ses:SendEmail, ses:GetEmailIdentity, ses:CreateEmailIdentity, ses:TagResource]
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ses:*:${AWS::AccountId}:identity/*
+                  - !Sub arn:${AWS::Partition}:ses:*:${AWS::AccountId}:configuration-set/*
+              - Sid: EmailAccount
+                Effect: Allow
+                Action: ses:GetAccount
+                Resource: "*"
+              - Sid: OwnLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub ${Logs.Arn}:*
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  Function:
+    Type: AWS::Lambda::Function
+    DependsOn: Logs
+    Properties:
+      FunctionName: forkrail-notify
+      Description: forkrail's events to the team's webhooks, notifications and email (deploy/notify).
+      Runtime: nodejs24.x
+      Architectures: [arm64]
+      Handler: index.handler
+      MemorySize: 256
+      # A batch's webhooks go out together, each given 30 seconds.
+      Timeout: 90
+      Role: !GetAtt Role.Arn
+      ReservedConcurrentExecutions: !If [Reserved, !Ref ReservedConcurrency, !Ref AWS::NoValue]
+      Code:
+        S3Bucket: !Sub forkrail-artifacts-${AWS::AccountId}
+        S3Key: !Ref CodeKey
+      Environment:
+        Variables:
+          WEB_TABLE: !Ref WebTable
+          EVENTS_QUEUE_URL: !Ref Queue
+          DASHBOARD_URL: !Ref DashboardUrl
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  FromQueue:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref Function
+      EventSourceArn: !GetAtt Queue.Arn
+      BatchSize: 10
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      # A burst of events (a flood of failed builds) can't take more of the account's concurrency.
+      ScalingConfig:
+        MaximumConcurrency: 5
+
+  DashboardInvokes:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DashboardRole}
+
+Outputs:
+  QueueUrl:
+    Value: !Ref Queue
+  FunctionArn:
+    Value: !GetAtt Function.Arn
+  KeyArn:
+    Value: !GetAtt NotifyKey.Arn

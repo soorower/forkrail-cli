@@ -1,0 +1,596 @@
+[
+ {
+  "config": {
+   "redirects": [
+    {
+     "source": "/old",
+     "destination": "/new"
+    },
+    {
+     "source": "/blog/:slug",
+     "destination": "/news/:slug",
+     "permanent": false
+    },
+    {
+     "source": "/docs/:path*",
+     "destination": "https://docs.example.com/:path*",
+     "statusCode": 301
+    },
+    {
+     "source": "/team",
+     "destination": "/about?tab=team#people"
+    },
+    {
+     "source": "/:id(\\d{1,})",
+     "destination": "/items/:id"
+    },
+    {
+     "source": "/((?!uk/).*)",
+     "destination": "/uk/$1",
+     "permanent": true
+    },
+    {
+     "source": "/search",
+     "has": [
+      {
+       "type": "query",
+       "key": "q"
+      }
+     ],
+     "destination": "/find?term=:q"
+    },
+    {
+     "source": "/:path*",
+     "has": [
+      {
+       "type": "host",
+       "value": "(?<sub>.*)\\.example\\.com"
+      }
+     ],
+     "destination": "https://example.com/:sub/:path*"
+    },
+    {
+     "source": "/files{/:name}?",
+     "destination": "/f/:name"
+    },
+    {
+     "source": "/a/:x/b/:y",
+     "destination": "/c/:y/:x?keep=1"
+    },
+    {
+     "source": "/legacy",
+     "destination": "/modern",
+     "has": [
+      {
+       "type": "header",
+       "key": "X-Flag",
+       "value": "on"
+      }
+     ],
+     "missing": [
+      {
+       "type": "cookie",
+       "key": "beta"
+      }
+     ]
+    }
+   ]
+  },
+  "routes": [
+   {
+    "src": "^/old$",
+    "headers": {
+     "Location": "/new"
+    },
+    "status": 308
+   },
+   {
+    "src": "^/blog(?:/([^/]+?))$",
+    "headers": {
+     "Location": "/news/$1"
+    },
+    "status": 307
+   },
+   {
+    "src": "^/docs(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?$",
+    "headers": {
+     "Location": "https://docs.example.com/$1"
+    },
+    "status": 301
+   },
+   {
+    "src": "^/team$",
+    "headers": {
+     "Location": "/about?tab=team#people"
+    },
+    "status": 308
+   },
+   {
+    "src": "^(?:/(\\d{1,}))$",
+    "headers": {
+     "Location": "/items/$1"
+    },
+    "status": 308
+   },
+   {
+    "src": "^(?:/((?!uk/).*))$",
+    "headers": {
+     "Location": "/uk/$1"
+    },
+    "status": 308
+   },
+   {
+    "src": "^/search$",
+    "headers": {
+     "Location": "/find?term=$q"
+    },
+    "status": 308,
+    "has": [
+     {
+      "type": "query",
+      "key": "q"
+     }
+    ]
+   },
+   {
+    "src": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?$",
+    "headers": {
+     "Location": "https://example.com/$sub/$1"
+    },
+    "status": 308,
+    "has": [
+     {
+      "type": "host",
+      "value": "(?<sub>.*)\\.example\\.com"
+     }
+    ]
+   },
+   {
+    "src": "^/files(?:/([^/]+?))?$",
+    "headers": {
+     "Location": "/f/$1"
+    },
+    "status": 308
+   },
+   {
+    "src": "^/a(?:/([^/]+?))/b(?:/([^/]+?))$",
+    "headers": {
+     "Location": "/c/$2/$1?keep=1"
+    },
+    "status": 308
+   },
+   {
+    "src": "^/legacy$",
+    "headers": {
+     "Location": "/modern"
+    },
+    "status": 308,
+    "has": [
+     {
+      "type": "header",
+      "key": "x-flag",
+      "value": "on"
+     }
+    ],
+    "missing": [
+     {
+      "type": "cookie",
+      "key": "beta"
+     }
+    ]
+   }
+  ],
+  "error": null
+ },
+ {
+  "config": {
+   "rewrites": [
+    {
+     "source": "/blog/:slug",
+     "destination": "/blog.html"
+    },
+    {
+     "source": "/api/:path*",
+     "destination": "https://api.example.com/:path*"
+    },
+    {
+     "source": "/p/:id",
+     "destination": "/product?id=:id"
+    },
+    {
+     "source": "/(.*)",
+     "destination": "/index.html"
+    },
+    {
+     "source": "/u/:user/:tab?",
+     "destination": "/profile"
+    },
+    {
+     "source": "/x/:a",
+     "destination": "/y/:a/z"
+    },
+    {
+     "source": "/h",
+     "has": [
+      {
+       "type": "header",
+       "key": "x-lang",
+       "value": "(?<lang>en|de)"
+      }
+     ],
+     "destination": "/:lang/home"
+    },
+    {
+     "source": "/gone",
+     "destination": "/410.html",
+     "statusCode": 410
+    }
+   ]
+  },
+  "routes": [
+   {
+    "handle": "filesystem"
+   },
+   {
+    "src": "^/blog(?:/([^/]+?))$",
+    "dest": "/blog.html?slug=$1",
+    "check": true
+   },
+   {
+    "src": "^/api(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?$",
+    "dest": "https://api.example.com/$1",
+    "check": true
+   },
+   {
+    "src": "^/p(?:/([^/]+?))$",
+    "dest": "/product?id=$1",
+    "check": true
+   },
+   {
+    "src": "^(?:/(.*))$",
+    "dest": "/index.html",
+    "check": true
+   },
+   {
+    "src": "^/u(?:/([^/]+?))(?:/([^/]+?))?$",
+    "dest": "/profile?user=$1&tab=$2",
+    "check": true
+   },
+   {
+    "src": "^/x(?:/([^/]+?))$",
+    "dest": "/y/$1/z",
+    "check": true
+   },
+   {
+    "src": "^/h$",
+    "dest": "/$lang/home",
+    "check": true,
+    "has": [
+     {
+      "type": "header",
+      "key": "x-lang",
+      "value": "(?<lang>en|de)"
+     }
+    ]
+   },
+   {
+    "src": "^/gone$",
+    "dest": "/410.html",
+    "check": true,
+    "status": 410
+   }
+  ],
+  "error": null
+ },
+ {
+  "config": {
+   "headers": [
+    {
+     "source": "/(.*)",
+     "headers": [
+      {
+       "key": "X-Frame-Options",
+       "value": "DENY"
+      },
+      {
+       "key": "x-test",
+       "value": "1"
+      }
+     ]
+    },
+    {
+     "source": "/fonts/:file",
+     "headers": [
+      {
+       "key": "Cache-Control",
+       "value": "public, max-age=31536000"
+      },
+      {
+       "key": "x-file",
+       "value": ":file"
+      }
+     ]
+    },
+    {
+     "source": "/:lang/:page",
+     "has": [
+      {
+       "type": "query",
+       "key": "v"
+      }
+     ],
+     "headers": [
+      {
+       "key": "x-v",
+       "value": ":v-:lang"
+      }
+     ]
+    }
+   ]
+  },
+  "routes": [
+   {
+    "src": "^(?:/(.*))$",
+    "headers": {
+     "X-Frame-Options": "DENY",
+     "x-test": "1"
+    },
+    "continue": true
+   },
+   {
+    "src": "^/fonts(?:/([^/]+?))$",
+    "headers": {
+     "Cache-Control": "public, max-age=31536000",
+     "x-file": "$1"
+    },
+    "continue": true
+   },
+   {
+    "src": "^(?:/([^/]+?))(?:/([^/]+?))$",
+    "headers": {
+     "x-v": "$v-$1"
+    },
+    "continue": true,
+    "has": [
+     {
+      "type": "query",
+      "key": "v"
+     }
+    ]
+   }
+  ],
+  "error": null
+ },
+ {
+  "config": {
+   "cleanUrls": true
+  },
+  "routes": [
+   {
+    "src": "^/(?:(.+)/)?index(?:\\.html)?/?$",
+    "headers": {
+     "Location": "/$1"
+    },
+    "status": 308
+   },
+   {
+    "src": "^/(.*)\\.html/?$",
+    "headers": {
+     "Location": "/$1"
+    },
+    "status": 308
+   }
+  ],
+  "error": null
+ },
+ {
+  "config": {
+   "cleanUrls": true,
+   "trailingSlash": true
+  },
+  "routes": [
+   {
+    "src": "^/(?:(.+)/)?index(?:\\.html)?/?$",
+    "headers": {
+     "Location": "/$1/"
+    },
+    "status": 308
+   },
+   {
+    "src": "^/(.*)\\.html/?$",
+    "headers": {
+     "Location": "/$1/"
+    },
+    "status": 308
+   },
+   {
+    "src": "^/\\.well-known(?:/.*)?$"
+   },
+   {
+    "src": "^/((?:[^/]+/)*[^/\\.]+)$",
+    "headers": {
+     "Location": "/$1/"
+    },
+    "status": 308
+   },
+   {
+    "src": "^/((?:[^/]+/)*[^/]+\\.\\w+)/$",
+    "headers": {
+     "Location": "/$1"
+    },
+    "status": 308
+   }
+  ],
+  "error": null
+ },
+ {
+  "config": {
+   "trailingSlash": true
+  },
+  "routes": [
+   {
+    "src": "^/\\.well-known(?:/.*)?$"
+   },
+   {
+    "src": "^/((?:[^/]+/)*[^/\\.]+)$",
+    "headers": {
+     "Location": "/$1/"
+    },
+    "status": 308
+   },
+   {
+    "src": "^/((?:[^/]+/)*[^/]+\\.\\w+)/$",
+    "headers": {
+     "Location": "/$1"
+    },
+    "status": 308
+   }
+  ],
+  "error": null
+ },
+ {
+  "config": {
+   "trailingSlash": false
+  },
+  "routes": [
+   {
+    "src": "^/(.*)/$",
+    "headers": {
+     "Location": "/$1"
+    },
+    "status": 308
+   }
+  ],
+  "error": null
+ },
+ {
+  "config": {
+   "cleanUrls": false,
+   "trailingSlash": false,
+   "redirects": [
+    {
+     "source": "/a",
+     "destination": "/b"
+    }
+   ],
+   "headers": [
+    {
+     "source": "/a",
+     "headers": [
+      {
+       "key": "x",
+       "value": "y"
+      }
+     ]
+    }
+   ],
+   "rewrites": [
+    {
+     "source": "/c",
+     "destination": "/d"
+    }
+   ]
+  },
+  "routes": [
+   {
+    "src": "^/(.*)/$",
+    "headers": {
+     "Location": "/$1"
+    },
+    "status": 308
+   },
+   {
+    "src": "^/a$",
+    "headers": {
+     "Location": "/b"
+    },
+    "status": 308
+   },
+   {
+    "src": "^/a$",
+    "headers": {
+     "x": "y"
+    },
+    "continue": true
+   },
+   {
+    "handle": "filesystem"
+   },
+   {
+    "src": "^/c$",
+    "dest": "/d",
+    "check": true
+   }
+  ],
+  "error": null
+ },
+ {
+  "config": {
+   "routes": [
+    {
+     "src": "/api/(.*)",
+     "dest": "/api/main.py"
+    },
+    {
+     "handle": "filesystem"
+    },
+    {
+     "src": "/(?<slug>[^/]+)/edit",
+     "dest": "/edit?slug=$slug",
+     "headers": {
+      "X-Edit": "$slug"
+     }
+    },
+    {
+     "src": "/old",
+     "status": 301,
+     "headers": {
+      "Location": "/new"
+     }
+    },
+    {
+     "src": "^/exact$",
+     "dest": "/e"
+    },
+    {
+     "source": "/aliased",
+     "destination": "/target",
+     "statusCode": 302
+    }
+   ]
+  },
+  "routes": [
+   {
+    "src": "^/api/(.*)$",
+    "dest": "/api/main.py"
+   },
+   {
+    "handle": "filesystem"
+   },
+   {
+    "src": "^/(?<slug>[^/]+)/edit$",
+    "dest": "/edit?slug=$slug",
+    "headers": {
+     "X-Edit": "$slug"
+    }
+   },
+   {
+    "src": "^/old$",
+    "status": 301,
+    "headers": {
+     "Location": "/new"
+    }
+   },
+   {
+    "src": "^/exact$",
+    "dest": "/e"
+   },
+   {
+    "src": "^/aliased$",
+    "dest": "/target",
+    "status": 302
+   }
+  ],
+  "error": null
+ }
+]

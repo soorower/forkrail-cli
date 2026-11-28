@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# For checking deploy/aws/stack.sh against an account: nothing here costs anything or is read by
+# anything. Extra=yes adds a resource; a new Label replaces one, which stack.sh refuses without
+# --allow-replace. Delete it when done (stack.sh delete selftest).
+Description: forkrail's self-test stack for deploy/aws/stack.sh; it holds nothing that costs or is used.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  Extra:
+    Type: String
+    AllowedValues: ["no", "yes"]
+    Default: "no"
+    Description: yes adds a second resource.
+  Label:
+    Type: String
+    AllowedPattern: "[a-z0-9-]{1,32}"
+    Default: one
+    Description: The end of the probe parameter's name, so a new label replaces that parameter.
+
+Conditions:
+  WithExtra: !Equals [!Ref Extra, "yes"]
+
+Resources:
+  # A standard-tier SSM parameter: free. Its name can't change in place, which makes it the
+  # replacement case.
+  Probe:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${AWS::StackName}/${Label}
+      Type: String
+      Value: deploy/aws/stack.sh self-test
+      Description: Made by forkrail's stack.sh self-test; deleted with the stack.
+
+  # Holds nothing at all.
+  ExtraHandle:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Condition: WithExtra
+
+Outputs:
+  ProbeName:
+    Value: !Ref Probe

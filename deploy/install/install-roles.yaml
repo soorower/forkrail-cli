@@ -1,0 +1,375 @@
+# The roles a new install's machines and dashboard run as, for `forkrail install` (crates/cli/src/install):
+# the same roles and policies deploy/aws/test-env.sh (ensure_roles: forkrail-worker, forkrail-router),
+# deploy/aws/analytics.sh (ensure_role: forkrail-analytics) and deploy/aws/dashboard.sh (role:
+# forkrail-dashboard) make with the IAM API for an install set up by hand. Keep them in step: a
+# change to one of those policies is a change here too.
+#
+# Apply it in the install's home region, before the stacks that name these roles (state, web, control,
+# notify, schedules, image, screenshot), since a resource policy refuses a role that doesn't exist.
+# An install set up by hand has these roles already, made by the scripts: never apply this there.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: forkrail's roles for the routers, the analytics box, the dashboard and apps' workers (forkrail install).
+
+Resources:
+  WorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: forkrail-worker
+      Description: "forkrail Lambda workers. No policies: logs go to the router, not CloudWatch."
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+
+  RouterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: forkrail-router
+      Description: "forkrail router: invoke forkrail-* functions, read build artifacts and routes, SSM."
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: forkrail-router
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-*
+              # Not control, and not the notifier (it sends email as the team): the router sends events
+              # to its queue instead, below. Nor the rest of forkrail's own, which it never calls: the
+              # builders (a job of its making would run anything and report to control), the spend
+              # guard, the screenshot and cost-tag functions, the release copier. A router faces the internet.
+              - Effect: Deny
+                Action: lambda:*
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-control
+                  - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-control:*
+                  - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-notify
+                  - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-notify:*
+                  - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-builder*
+                  - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-guard*
+                  - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-screenshot*
+                  - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-cost-tags*
+                  # The installer's release copier: it writes the release and the builder's image.
+                  - !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-install-fetch*
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource:
+                  - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:forkrail-events
+                  - !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:forkrail-spend
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}-*/static/*
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/results/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/certs/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/logs/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/acme/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/spend/*
+                  # Where it is, for the other routers (crates/router/src/routers.rs).
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/routers/*
+              - Effect: Allow
+                Action: s3:DeleteObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/acme/*
+              - Effect: Allow
+                Action: [s3:PutObject, s3:DeleteObject]
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/insights/salts/*
+              - Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: "*"
+                Condition:
+                  StringEquals: { "cloudwatch:namespace": forkrail }
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/cloudflare-api-token
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/ingest
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/router/challenge-key
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/router/peer-key
+              # Its four secrets, decrypted through SSM with the install key, and no other parameter of
+              # the account: AmazonSSMManagedInstanceCore (for Run Command) allows ssm:GetParameter on all.
+              - Sid: OwnSecrets
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringEquals: { "kms:ResourceAliases": alias/forkrail-install }
+                  StringEquals:
+                    kms:ViaService: !Sub ssm.${AWS::Region}.amazonaws.com
+                    kms:EncryptionContext:PARAMETER_ARN:
+                      - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/cloudflare-api-token
+                      - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/ingest
+                      - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/router/challenge-key
+                      - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/router/peer-key
+              - Sid: NoOtherParameters
+                Effect: Deny
+                Action: [ssm:GetParameter, ssm:GetParameters, ssm:GetParametersByPath, ssm:GetParameterHistory]
+                NotResource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/cloudflare-api-token
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/ingest
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/router/challenge-key
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/router/peer-key
+              - Effect: Allow
+                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes]
+                Resource: !Sub arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:forkrail-schedules
+
+  RouterProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: forkrail-router
+      Roles: [!Ref RouterRole]
+
+  AnalyticsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: forkrail-analytics
+      Description: "forkrail analytics box: read the log export and its passwords, SSM."
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: forkrail-analytics
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/logs/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/*
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/tools/*
+              # state/ also holds the private key of every certificate and the ACME account key: only
+              # the routers read those.
+              - Sid: NoCertificateKeys
+                Effect: Deny
+                Action: s3:GetObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/certs/*/key.pem
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/certs/*/account.json
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/analytics/*
+              - Effect: Allow
+                Action: [s3:PutObject, s3:GetObject]
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/backups/postgres/*
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/ingest
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/reader
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/buildlog
+              - Sid: OwnSecrets
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringEquals: { "kms:ResourceAliases": alias/forkrail-install }
+                  StringEquals:
+                    kms:ViaService: !Sub ssm.${AWS::Region}.amazonaws.com
+                    kms:EncryptionContext:PARAMETER_ARN:
+                      - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/ingest
+                      - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/reader
+                      - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/buildlog
+              - Sid: NoOtherParameters
+                Effect: Deny
+                Action: [ssm:GetParameter, ssm:GetParameters, ssm:GetParametersByPath, ssm:GetParameterHistory]
+                NotResource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/ingest
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/reader
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/buildlog
+
+  AnalyticsProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: forkrail-analytics
+      Roles: [!Ref AnalyticsRole]
+
+  DashboardRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: forkrail-dashboard
+      Description: forkrail dashboard reads forkrail's state, the ClickHouse reader password, and infrastructure status
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref AWS::AccountId }
+      Policies:
+        - PolicyName: forkrail-dashboard
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: State
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/*
+              - Sid: Notifier
+                Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:forkrail-notify
+              - Sid: NotifierSecrets
+                Effect: Allow
+                Action: kms:Encrypt
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringEquals: { "kms:ResourceAliases": alias/forkrail-notify }
+                  StringLike: { "kms:EncryptionContext:forkrail": [smtp-password, webhook-secret] }
+              - Sid: NoCertificateKeys
+                Effect: Deny
+                Action: s3:GetObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/certs/*/key.pem
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/state/certs/*/account.json
+              - Sid: BuildLogs
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/logs/builds/*
+              - Sid: Previews
+                Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/previews/*
+              - Sid: StaticManifests
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/static/manifests/*
+              - Sid: StateTable
+                Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:BatchGetItem, dynamodb:Query, dynamodb:DescribeTable]
+                Resource:
+                  - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/forkrail-state
+                  - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/forkrail-state/index/*
+              - Sid: StateKey
+                Effect: Allow
+                Action: [kms:Decrypt, kms:DescribeKey]
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringEquals: { "kms:ResourceAliases": alias/forkrail-state }
+                  StringEquals: { "kms:ViaService": !Sub "dynamodb.${AWS::Region}.amazonaws.com" }
+              - Sid: WebTable
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:ConditionCheckItem
+                  - dynamodb:DescribeTable
+                Resource:
+                  - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/forkrail-web
+                  - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/forkrail-web/index/*
+              - Sid: WebKey
+                Effect: Allow
+                Action: [kms:Decrypt, kms:Encrypt, kms:GenerateDataKey*, kms:ReEncrypt*, kms:DescribeKey]
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringEquals: { "kms:ResourceAliases": alias/forkrail-web }
+                  StringEquals: { "kms:ViaService": !Sub "dynamodb.${AWS::Region}.amazonaws.com" }
+              - Sid: ListState
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}
+                Condition:
+                  StringLike: { "s3:prefix": "state/*" }
+              - Sid: ListKept
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}
+                  - !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}-*
+              - Sid: ClickHouse
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/reader
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/buildlog
+              - Sid: OwnParameters
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/web/*
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/github/app
+              - Sid: OwnSecrets
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringEquals: { "kms:ResourceAliases": alias/forkrail-env }
+                  StringEquals: { "kms:ViaService": !Sub "ssm.${AWS::Region}.amazonaws.com" }
+                  StringLike: { "kms:EncryptionContext:PARAMETER_ARN": !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/web/*" }
+              - Sid: ClickHouseSecrets
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringEquals: { "kms:ResourceAliases": alias/forkrail-install }
+                  StringEquals:
+                    kms:ViaService: !Sub ssm.${AWS::Region}.amazonaws.com
+                    kms:EncryptionContext:PARAMETER_ARN:
+                      - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/reader
+                      - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/forkrail/clickhouse/buildlog
+              # Not lambda:ListFunctions, nor GetFunctionConfiguration on every function: both
+              # answer a function's environment variables, and the account's other workloads keep
+              # secrets there.
+              - Sid: Infrastructure
+                Effect: Allow
+                Resource: "*"
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeVolumes
+                  - globalaccelerator:ListAccelerators
+                  - globalaccelerator:ListListeners
+                  - globalaccelerator:ListEndpointGroups
+                  - lambda:GetAccountSettings
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:ListMetrics
+                  - kms:ListAliases
+                  - route53:GetHealthCheck
+                  - ecr:DescribeImages
+              # forkrail's own functions, whose memory the usage page prices (web/src/server/costs.ts).
+              - Sid: OwnFunctions
+                Effect: Allow
+                Action: lambda:GetFunctionConfiguration
+                Resource: !Sub arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:forkrail-*
+              - Sid: AccountBill
+                Effect: Allow
+                Resource: "*"
+                Action: ce:GetCostAndUsage
+
+Outputs:
+  RouterRoleArn:
+    Value: !GetAtt RouterRole.Arn
+  DashboardRoleArn:
+    Value: !GetAtt DashboardRole.Arn
+  WorkerRoleArn:
+    Value: !GetAtt WorkerRole.Arn

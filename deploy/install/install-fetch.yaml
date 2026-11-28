@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# forkrail-install-fetch: the function `forkrail install` copies a published release into the
+# account with (deploy/install/fetch.py). It downloads the release (about 1 GB, most of it the
+# builder's image) from GitHub itself, so nothing that size goes through the installing computer,
+# and puts its files in the install's bucket and the image's layers in the builder's registry.
+#
+# The installer applies it in the release step, with the function's zip it made and uploaded, and
+# runs it once per release; it costs nothing while it isn't running (a run is about a minute of a
+# 1 GB function: a fraction of a cent). `forkrail uninstall` deletes it with the other stacks.
+Description: forkrail's release copier, which the installer runs to copy a published forkrail release into the account.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  CodeKey:
+    Type: String
+    AllowedPattern: "install/fetch/forkrail-install-fetch-[0-9a-f]{16}\\.zip"
+    Description: The function's zip in the install's bucket, as the installer uploaded it.
+  MemorySize:
+    Type: Number
+    Default: 1024
+    MinValue: 128
+    MaxValue: 10240
+    Description: The function's memory (it streams the release, so 512 MB is plenty; more gives it a faster network).
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/forkrail-install-fetch
+      RetentionInDays: 7
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: forkrail-install-fetch
+      Description: forkrail's release copier. May only write the release's files and the builder's image.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: install-fetch
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # The release's files and the copy's progress, under install/release/.
+              - Sid: TheReleasesFiles
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:AbortMultipartUpload
+                Resource: !Sub arn:${AWS::Partition}:s3:::forkrail-artifacts-${AWS::AccountId}/install/release/*
+              - Sid: TheBuildersImage
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/forkrail-builder
+              - Sid: Logs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub ${LogGroup.Arn}:*
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: forkrail-install-fetch
+      Description: Copies a published forkrail release into this account for forkrail install (deploy/install/fetch.py).
+      Runtime: python3.13
+      Architectures: [arm64]
+      Handler: fetch.handler
+      MemorySize: !Ref MemorySize
+      Timeout: 900
+      Role: !GetAtt Role.Arn
+      Code:
+        S3Bucket: !Sub forkrail-artifacts-${AWS::AccountId}
+        S3Key: !Ref CodeKey
+      LoggingConfig:
+        LogGroup: !Ref LogGroup
+        LogFormat: Text
+      Tags:
+        - Key: project
+          Value: forkrail
+
+  # The installer runs it once and reads how it went; a failed copy isn't tried again behind its
+  # back (the installer copies the release itself then).
+  NoRetries:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref Function
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 0
+      MaximumEventAgeInSeconds: 300
+
+Outputs:
+  FunctionName:
+    Value: !Ref Function

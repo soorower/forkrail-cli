@@ -1,0 +1,228 @@
+{
+ "note": "Nitro's Build Output for test-apps/fw-vite-nitro as forkrail's build left it (2026-11-16, skew protection on, deployment id f8test), in short: config.json, every function (a link, or its .vc-config.json) and prerender config, the static files' paths; and the project's vercel.json. The import of it is checked against fw-vite-nitro.golden.json.",
+ "framework": "Nitro",
+ "vercel_json": null,
+ "config": {
+  "version": 3,
+  "framework": {
+   "name": "nitro",
+   "version": "3.0.261103-rc"
+  },
+  "overrides": {},
+  "routes": [
+   {
+    "src": "^\\/headers\\/?$",
+    "headers": {
+     "x-rule": "headers",
+     "cache-control": "public, max-age=0, s-maxage=60"
+    },
+    "continue": true
+   },
+   {
+    "src": "^\\/api(?:\\/(?<_0>(?:[\\s\\S]*[^/])?\\/*?))??\\/?$",
+    "headers": {
+     "x-rule-api": "1"
+    },
+    "continue": true
+   },
+   {
+    "src": "^\\/assets(?:\\/(?<_0>(?:[\\s\\S]*[^/])?\\/*?))??\\/?$",
+    "headers": {
+     "cache-control": "public, max-age=31536000, immutable"
+    },
+    "continue": true
+   },
+   {
+    "src": "^\\/proxy(?:\\/(?<_0>(?:[\\s\\S]*[^/])?\\/*?))??\\/?$",
+    "dest": "https://example.com/$1"
+   },
+   {
+    "src": "^(?!(?:\\/legacy\\/keep\\/?)$)\\/legacy(?:\\/(?<_0>(?:[\\s\\S]*[^/])?\\/*?))??\\/?$",
+    "status": 301,
+    "headers": {
+     "Location": "/isr/$1"
+    }
+   },
+   {
+    "src": "^\\/old\\/?$",
+    "status": 307,
+    "headers": {
+     "Location": "/"
+    }
+   },
+   {
+    "src": "/.*",
+    "has": [
+     {
+      "type": "header",
+      "key": "Sec-Fetch-Dest",
+      "value": "document"
+     }
+    ],
+    "headers": {
+     "Set-Cookie": "__vdpl=f8test; Path=/; SameSite=Lax; Secure; HttpOnly"
+    },
+    "continue": true
+   },
+   {
+    "handle": "filesystem"
+   },
+   {
+    "src": "/assets/(.*)",
+    "status": 404,
+    "headers": {
+     "cache-control": "no-store"
+    },
+    "continue": false
+   },
+   {
+    "src": "^(?<__isr_route>\\/isr-query\\/?)$",
+    "dest": "/isr-query-isr?__isr_route=$__isr_route"
+   },
+   {
+    "src": "^(?<__isr_route>\\/isr-forever\\/?)$",
+    "dest": "/isr-forever-isr?__isr_route=$__isr_route"
+   },
+   {
+    "src": "^(?<__isr_route>\\/isr\\/?)$",
+    "dest": "/isr-isr?__isr_route=$__isr_route"
+   },
+   {
+    "src": "^(?<__isr_route>\\/isr(?:\\/(?<_0>(?:[\\s\\S]*[^/])?\\/*?))??\\/?)$",
+    "dest": "/isr/[...]-isr?__isr_route=$__isr_route"
+   },
+   {
+    "src": "^\\/api\\/heavy\\/?$",
+    "dest": "/api/heavy"
+   },
+   {
+    "src": "^\\/_vercel\\/cron\\/?$",
+    "dest": "/_vercel/cron"
+   },
+   {
+    "src": "^\\/swr\\/?$",
+    "dest": "/swr"
+   },
+   {
+    "src": "^\\/headers\\/?$",
+    "dest": "/headers"
+   },
+   {
+    "src": "^\\/api\\/hello\\/?$",
+    "dest": "/api/hello"
+   },
+   {
+    "src": "^\\/api\\/heavy\\/?$",
+    "dest": "/api/heavy"
+   },
+   {
+    "src": "^\\/api\\/env\\/?$",
+    "dest": "/api/env"
+   },
+   {
+    "src": "/(.*)",
+    "dest": "/__server"
+   }
+  ],
+  "crons": [
+   {
+    "path": "/_vercel/cron",
+    "schedule": "0 * * * *"
+   }
+  ]
+ },
+ "functions": {
+  "/__server": {
+   "vc": {
+    "handler": "index.mjs",
+    "launcherType": "Nodejs",
+    "shouldAddHelpers": false,
+    "supportsResponseStreaming": true,
+    "runtime": "nodejs26.x"
+   }
+  },
+  "/_vercel/cron": {
+   "link": "/__server"
+  },
+  "/api/env": {
+   "link": "/__server"
+  },
+  "/api/heavy": {
+   "vc": {
+    "handler": "index.mjs",
+    "launcherType": "Nodejs",
+    "shouldAddHelpers": false,
+    "supportsResponseStreaming": true,
+    "runtime": "nodejs26.x",
+    "memory": 1024,
+    "maxDuration": 30
+   }
+  },
+  "/api/hello": {
+   "link": "/__server"
+  },
+  "/headers": {
+   "link": "/__server"
+  },
+  "/isr-forever-isr": {
+   "link": "/__server"
+  },
+  "/isr-isr": {
+   "link": "/__server"
+  },
+  "/isr-query-isr": {
+   "link": "/__server"
+  },
+  "/isr/[...]-isr": {
+   "link": "/__server"
+  },
+  "/swr": {
+   "link": "/__server"
+  }
+ },
+ "prerenders": {
+  "/isr-forever-isr": {
+   "expiration": false
+  },
+  "/isr-isr": {
+   "expiration": 60
+  },
+  "/isr-query-isr": {
+   "expiration": 30,
+   "allowQuery": [
+    "v",
+    "__isr_route"
+   ],
+   "passQuery": true
+  },
+  "/isr/[...]-isr": {
+   "expiration": 60
+  }
+ },
+ "static": [
+  "/assets/hero-CLDdwZDr.png",
+  "/assets/index-CsUDhMuy.css",
+  "/assets/index-wktXvZw9.js",
+  "/assets/vite-BF8QNONU.svg",
+  "/favicon.svg",
+  "/icons.svg"
+ ],
+ "requests": [
+  "/",
+  "/old",
+  "/legacy/a/b?x=1",
+  "/legacy/keep",
+  "/headers",
+  "/api/hello",
+  "/api/heavy",
+  "/proxy/a?b=1",
+  "/isr",
+  "/isr/one",
+  "/isr-query?v=1&other=2",
+  "/isr-forever",
+  "/swr",
+  "/_vercel/cron",
+  "/assets/nope.js",
+  "/missing"
+ ]
+}

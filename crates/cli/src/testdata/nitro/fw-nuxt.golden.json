@@ -1,0 +1,578 @@
+{
+  "crons": [],
+  "decisions": {
+    "/": {
+      "captures": null,
+      "function": "/",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/__fallback": {
+      "captures": null,
+      "function": "/__fallback",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/__nuxt_error": {
+      "captures": null,
+      "function": "/__nuxt_error",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/__nuxt_island/x": {
+      "captures": [],
+      "function": "/__nuxt_island/[...]",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/_nuxt/builds/latest.json": {
+      "captures": null,
+      "function": null,
+      "headers": [
+        [
+          "cache-control",
+          "public,max-age=31536000,immutable"
+        ]
+      ],
+      "outcome": "Static { file: \"/_nuxt/builds/latest.json\" }",
+      "status": null
+    },
+    "/api/hello": {
+      "captures": null,
+      "function": "/api/hello",
+      "headers": [
+        [
+          "x-rule-api",
+          "1"
+        ],
+        [
+          "x-from-vercel-json",
+          "1"
+        ]
+      ],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/headers": {
+      "captures": null,
+      "function": "/headers",
+      "headers": [
+        [
+          "cache-control",
+          "public, max-age=0, s-maxage=60"
+        ],
+        [
+          "x-rule",
+          "headers"
+        ]
+      ],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/index": {
+      "captures": null,
+      "function": "/index",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/isr-forever": {
+      "captures": [
+        [
+          "1",
+          "/isr-forever"
+        ],
+        [
+          "__isr_route",
+          "/isr-forever"
+        ]
+      ],
+      "function": "/isr-forever-isr",
+      "headers": [],
+      "outcome": "Function { query: Some(\"__isr_route=%2Fisr-forever\") }",
+      "status": null
+    },
+    "/isr/one": {
+      "captures": [
+        [
+          "1",
+          "/isr/one"
+        ],
+        [
+          "__isr_route",
+          "/isr/one"
+        ]
+      ],
+      "function": "/isr/[...]-isr",
+      "headers": [],
+      "outcome": "Function { query: Some(\"__isr_route=%2Fisr%2Fone\") }",
+      "status": null
+    },
+    "/isr/one/_payload.json": {
+      "captures": [
+        [
+          "1",
+          "/isr/one/_payload.json"
+        ],
+        [
+          "__isr_route",
+          "/isr/one/_payload.json"
+        ]
+      ],
+      "function": "/isr/[...]-isr",
+      "headers": [],
+      "outcome": "Function { query: Some(\"__isr_route=%2Fisr%2Fone%2F_payload.json\") }",
+      "status": null
+    },
+    "/legacy/a/b": {
+      "captures": null,
+      "function": null,
+      "headers": [],
+      "outcome": "Redirect { location: \"/isr/a/b\" }",
+      "status": 301
+    },
+    "/missing": {
+      "captures": [
+        [
+          "1",
+          "missing"
+        ]
+      ],
+      "function": "/__fallback",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/old": {
+      "captures": null,
+      "function": null,
+      "headers": [],
+      "outcome": "Redirect { location: \"/ssr\" }",
+      "status": 307
+    },
+    "/prerendered": {
+      "captures": null,
+      "function": null,
+      "headers": [],
+      "outcome": "Static { file: \"/prerendered/index.html\" }",
+      "status": null
+    },
+    "/ssr?a=1": {
+      "captures": null,
+      "function": "/ssr",
+      "headers": [],
+      "outcome": "Function { query: None }",
+      "status": null
+    },
+    "/swr": {
+      "captures": [
+        [
+          "1",
+          "/swr"
+        ],
+        [
+          "__isr_route",
+          "/swr"
+        ]
+      ],
+      "function": "/swr-isr",
+      "headers": [],
+      "outcome": "Function { query: Some(\"__isr_route=%2Fswr\") }",
+      "status": null
+    }
+  },
+  "dispatcher": [
+    "{ name: \"/__fallback\", paths: [\"/__fallback\",\"/__fallback/\",\"/__nuxt_error\",\"/__nuxt_error/\",\"/__nuxt_island/[...]\",\"/__nuxt_island/[...]/\",\"/api/cron\",\"/api/cron/\",\"/api/env\",\"/api/env/\",\"/api/hello\",\"/api/hello/\",\"/headers\",\"/headers/\",\"/image\",\"/image/\",\"/index\",\"/index/\",\"/\",\"/isr-forever-isr\",\"/isr-forever-isr/\",\"/isr-forever/_payload.json-isr\",\"/isr-forever/_payload.json-isr/\",\"/isr/[...]-isr\",\"/isr/[...]-isr/\",\"/legacy/[pathMatch]\",\"/legacy/[pathMatch]/\",\"/old\",\"/old/\",\"/spa\",\"/spa/\",\"/ssr\",\"/ssr/\",\"/swr-isr\",\"/swr-isr/\",\"/swr/_payload.json-isr\",\"/swr/_payload.json-isr/\"], helpers: false"
+  ],
+  "floor": null,
+  "framework": null,
+  "functions": [
+    "/__fallback"
+  ],
+  "images": {
+    "domains": [],
+    "formats": [
+      "image/webp",
+      "image/avif"
+    ],
+    "minimumCacheTTL": 300,
+    "sizes": [
+      640,
+      768,
+      1024,
+      1280,
+      1536
+    ]
+  },
+  "max_duration": {},
+  "paths": [
+    "/__fallback",
+    "/__fallback/",
+    "/__nuxt_error",
+    "/__nuxt_error/",
+    "/__nuxt_island/[...]",
+    "/__nuxt_island/[...]/",
+    "/api/cron",
+    "/api/cron/",
+    "/api/env",
+    "/api/env/",
+    "/api/hello",
+    "/api/hello/",
+    "/headers",
+    "/headers/",
+    "/image",
+    "/image/",
+    "/index",
+    "/index/",
+    "/",
+    "/isr-forever-isr",
+    "/isr-forever-isr/",
+    "/isr-forever/_payload.json-isr",
+    "/isr-forever/_payload.json-isr/",
+    "/isr/[...]-isr",
+    "/isr/[...]-isr/",
+    "/legacy/[pathMatch]",
+    "/legacy/[pathMatch]/",
+    "/old",
+    "/old/",
+    "/spa",
+    "/spa/",
+    "/ssr",
+    "/ssr/",
+    "/swr-isr",
+    "/swr-isr/",
+    "/swr/_payload.json-isr",
+    "/swr/_payload.json-isr/"
+  ],
+  "prerenders": {
+    "/isr-forever-isr": {
+      "path": "/isr-forever-isr"
+    },
+    "/isr-forever-isr/": {
+      "path": "/isr-forever-isr"
+    },
+    "/isr-forever/_payload.json-isr": {
+      "path": "/isr-forever/_payload.json-isr"
+    },
+    "/isr-forever/_payload.json-isr/": {
+      "path": "/isr-forever/_payload.json-isr"
+    },
+    "/isr/[...]-isr": {
+      "expiration": 60,
+      "path": "/isr/[...]-isr"
+    },
+    "/isr/[...]-isr/": {
+      "expiration": 60,
+      "path": "/isr/[...]-isr"
+    },
+    "/swr-isr": {
+      "path": "/swr-isr"
+    },
+    "/swr-isr/": {
+      "path": "/swr-isr"
+    },
+    "/swr/_payload.json-isr": {
+      "path": "/swr/_payload.json-isr"
+    },
+    "/swr/_payload.json-isr/": {
+      "path": "/swr/_payload.json-isr"
+    }
+  },
+  "routes": [
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "Nuxt's routes[0]",
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ],
+      "src": "^/_nuxt/(.*)$"
+    },
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "Nuxt's routes[1]",
+      "headers": [
+        {
+          "key": "x-rule-api",
+          "value": "1"
+        }
+      ],
+      "src": "^/api/(.*)$"
+    },
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "Nuxt's routes[2]",
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "public, max-age=0, s-maxage=60"
+        },
+        {
+          "key": "x-rule",
+          "value": "headers"
+        }
+      ],
+      "src": "^/headers$"
+    },
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "Nuxt's routes[3]",
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "public, max-age=1, immutable"
+        }
+      ],
+      "src": "^/_nuxt/builds/(.*)$"
+    },
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "Nuxt's routes[4]",
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ],
+      "src": "^/_nuxt/builds/meta/(.*)$"
+    },
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "Nuxt's routes[7]",
+      "has": [
+        {
+          "key": "Sec-Fetch-Dest",
+          "type": "header",
+          "value": "document"
+        }
+      ],
+      "headers": [
+        {
+          "key": "Set-Cookie",
+          "value": "__vdpl=f8test; Path=/; SameSite=Lax; Secure; HttpOnly"
+        }
+      ],
+      "src": "^/.*$"
+    },
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "Nuxt's routes[8]",
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "public,max-age=31536000,immutable"
+        }
+      ],
+      "src": "^/_nuxt/builds/meta(.*)$"
+    },
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "Nuxt's routes[9]",
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "public,max-age=31536000,immutable"
+        }
+      ],
+      "src": "^/_nuxt/builds(.*)$"
+    },
+    {
+      "caseSensitive": false,
+      "continue": true,
+      "from": "Nuxt's routes[10]",
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "public,max-age=31536000,immutable"
+        }
+      ],
+      "src": "^/_nuxt(.*)$"
+    },
+    {
+      "continue": true,
+      "from": "headers[0]",
+      "headers": [
+        {
+          "key": "x-from-vercel-json",
+          "value": "1"
+        }
+      ],
+      "src": "^/api(?:/(.*))$"
+    },
+    {
+      "caseSensitive": false,
+      "from": "Nuxt's routes[5]",
+      "headers": [
+        {
+          "key": "Location",
+          "value": "/ssr"
+        }
+      ],
+      "src": "^/old$",
+      "status": 307
+    },
+    {
+      "caseSensitive": false,
+      "from": "Nuxt's routes[6]",
+      "headers": [
+        {
+          "key": "Location",
+          "value": "/isr/$1"
+        }
+      ],
+      "src": "^/legacy/(.*)$",
+      "status": 301
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/isr-forever/_payload.json-isr?__isr_route=$__isr_route",
+      "from": "Nuxt's routes[12]",
+      "src": "^(?<__isr_route>/isr-forever/_payload.json)$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/swr/_payload.json-isr?__isr_route=$__isr_route",
+      "from": "Nuxt's routes[13]",
+      "src": "^(?<__isr_route>/swr/_payload.json)$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/__fallback",
+      "from": "Nuxt's routes[14]",
+      "src": "^(?<__isr_route>/__nuxt_error)$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/isr/[...]-isr?__isr_route=$__isr_route",
+      "from": "Nuxt's routes[15]",
+      "src": "^(?<__isr_route>/isr/(?:.*))$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/isr-forever-isr?__isr_route=$__isr_route",
+      "from": "Nuxt's routes[16]",
+      "src": "^(?<__isr_route>/isr-forever)$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/swr-isr?__isr_route=$__isr_route",
+      "from": "Nuxt's routes[17]",
+      "src": "^(?<__isr_route>/swr)$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/swr",
+      "from": "Nuxt's routes[18]",
+      "src": "^/swr$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/ssr",
+      "from": "Nuxt's routes[19]",
+      "src": "^/ssr$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/spa",
+      "from": "Nuxt's routes[20]",
+      "src": "^/spa$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/old",
+      "from": "Nuxt's routes[21]",
+      "src": "^/old$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/isr-forever",
+      "from": "Nuxt's routes[22]",
+      "src": "^/isr-forever$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/image",
+      "from": "Nuxt's routes[23]",
+      "src": "^/image$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/headers",
+      "from": "Nuxt's routes[24]",
+      "src": "^/headers$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/api/hello",
+      "from": "Nuxt's routes[25]",
+      "src": "^/api/hello$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/api/env",
+      "from": "Nuxt's routes[26]",
+      "src": "^/api/env$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/api/cron",
+      "from": "Nuxt's routes[27]",
+      "src": "^/api/cron$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/__nuxt_error",
+      "from": "Nuxt's routes[28]",
+      "src": "^/__nuxt_error$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/index",
+      "from": "Nuxt's routes[29]",
+      "src": "^/$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/legacy/[pathMatch]",
+      "from": "Nuxt's routes[30]",
+      "src": "^/legacy/(?<pathMatch>[^/]+)$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/isr/[slug]",
+      "from": "Nuxt's routes[31]",
+      "src": "^/isr/(?<slug>[^/]+)$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/__nuxt_island/[...]",
+      "from": "Nuxt's routes[32]",
+      "src": "^/__nuxt_island/(?:.*)$"
+    },
+    {
+      "caseSensitive": false,
+      "dest": "/__fallback",
+      "from": "Nuxt's routes[33]",
+      "src": "^/(.*)$"
+    }
+  ],
+  "schedules": null,
+  "warnings": []
+}

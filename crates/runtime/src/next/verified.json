@@ -1,0 +1,4 @@
+{
+  "about": "Next.js release lines this server (crates/runtime/src/next) has passed Next's own deploy test suite on. The build uses it only for these; any other version, and every prerelease, is run on Next's own standalone server instead. Read by main.mjs at start and by the build.",
+  "next": ["16.4"]
+}

@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: "2010-09-09"
+# The router's and the analytics box's network, as `forkrail install` makes it (crates/cli/src/install):
+# their security groups in the region's default VPC and their Elastic IPs, which DNS and the
+# routers' settings name, so they outlive the instances.
+#
+# - forkrail-router: HTTPS (443) and HTTP (80, redirects to HTTPS) for everyone, and the two tunnel
+#   ports Lambda workers dial back on (7443, and 7444 for the second router during a restart).
+#   Workers outside a VPC have no fixed source range: the pinned certificate and single-use tokens
+#   guard those ports.
+# - forkrail-analytics: ClickHouse from the router alone, plain HTTP (8123) for its logs and HTTPS
+#   (8443) for apps' egress through it (the dashboard).
+#
+# The same rules deploy/aws/test-env.sh and analytics.sh keep for an install set up by hand.
+Description: forkrail's network for the router and the analytics box (security groups, Elastic IPs).
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: The region's default VPC.
+
+Resources:
+  RouterSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: forkrail-router
+      GroupDescription: forkrail router
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: "HTTP, redirects to HTTPS" }
+        - { IpProtocol: tcp, FromPort: 7443, ToPort: 7443, CidrIp: 0.0.0.0/0, Description: tunnel from Lambda workers }
+        - { IpProtocol: tcp, FromPort: 7444, ToPort: 7444, CidrIp: 0.0.0.0/0, Description: "tunnel from Lambda workers, second router during restarts" }
+      Tags:
+        - { Key: Name, Value: forkrail-router }
+
+  AnalyticsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: forkrail-analytics
+      GroupDescription: "forkrail analytics: ClickHouse for the router"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8123
+          ToPort: 8123
+          SourceSecurityGroupId: !GetAtt RouterSecurityGroup.GroupId
+          Description: ClickHouse HTTP from the router in this region
+        - IpProtocol: tcp
+          FromPort: 8443
+          ToPort: 8443
+          SourceSecurityGroupId: !GetAtt RouterSecurityGroup.GroupId
+          Description: ClickHouse HTTPS from the router in this region (app egress)
+      Tags:
+        - { Key: Name, Value: forkrail-analytics }
+
+  RouterAddress:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - { Key: Name, Value: forkrail-router-eip }
+
+  AnalyticsAddress:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - { Key: Name, Value: forkrail-analytics-eip }
+
+Outputs:
+  RouterSecurityGroupId:
+    Value: !GetAtt RouterSecurityGroup.GroupId
+  AnalyticsSecurityGroupId:
+    Value: !GetAtt AnalyticsSecurityGroup.GroupId
+  RouterAddress:
+    Value: !Ref RouterAddress
+  RouterAllocationId:
+    Value: !GetAtt RouterAddress.AllocationId
+  AnalyticsAddress:
+    Value: !Ref AnalyticsAddress
+  AnalyticsAllocationId:
+    Value: !GetAtt AnalyticsAddress.AllocationId

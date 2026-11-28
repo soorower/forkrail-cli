@@ -1,0 +1,7 @@
+{
+  "framework": "create-react-app",
+  "installCommand": "true",
+  "buildCommand": "sh build.sh",
+  "rewrites": [{ "source": "/docs/:p*", "destination": "/404.html" }],
+  "headers": [{ "source": "/static/(.*)", "headers": [{ "key": "x-static", "value": "1" }] }]
+}
